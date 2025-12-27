@@ -400,8 +400,11 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
 
                         newMediaRecorder.ondataavailable = (e) => {
                             if (isPausedRef.current) return
-                            if (e.data.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
-                                ws.send(e.data)
+                            // Use wsRef.current to get the active connection (not the stale closure-captured ws)
+                            const activeWs = wsRef.current
+                            if (e.data.size > 0 && activeWs && activeWs.readyState === WebSocket.OPEN) {
+                                activeWs.send(e.data)
+                                console.log(`[STT] Reconnected stream, sending chunk size=${e.data.size}`)
                             }
                         }
 
