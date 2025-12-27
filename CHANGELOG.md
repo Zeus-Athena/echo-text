@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v1.0.5] - 2025-12-28
+
+### Fixed
+- **Frontend**: Allow editing API Base URLs in settings (previously read-only). Added placeholder indicators for default internal URLs.
+- **CI**: Optimized workflow dependency (Docker build now waits for CI checks).
+
 ## [v1.0.4] - 2025-12-27
 
 ### Added
