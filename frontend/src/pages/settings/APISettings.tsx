@@ -493,8 +493,9 @@ export function APISettings() {
                                 <input
                                     type="text"
                                     value={llm.base_url}
-                                    readOnly
-                                    className="input bg-gray-50 dark:bg-gray-800 cursor-not-allowed border-brand-200 dark:border-brand-800"
+                                    onChange={(e) => setLLM({ ...llm, base_url: e.target.value })}
+                                    placeholder={LLM_PROVIDERS[llm.provider as keyof typeof LLM_PROVIDERS]?.base_url}
+                                    className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
                                 />
                             </div>
                             <div>
@@ -594,8 +595,9 @@ export function APISettings() {
                                 <input
                                     type="text"
                                     value={stt.base_url}
-                                    readOnly
-                                    className="input bg-gray-50 dark:bg-gray-800 cursor-not-allowed border-brand-200 dark:border-brand-800"
+                                    onChange={(e) => setSTT({ ...stt, base_url: e.target.value })}
+                                    placeholder={STT_PROVIDERS[stt.provider as keyof typeof STT_PROVIDERS]?.base_url}
+                                    className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
                                 />
                             </div>
                             <div>
