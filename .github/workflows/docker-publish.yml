@@ -7,7 +7,12 @@ on:
   workflow_dispatch:
 
 jobs:
+  ci-checks:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
   build-and-push-backend:
+    needs: ci-checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -36,6 +41,7 @@ jobs:
             ttjade/echo-text-backend:${{ github.ref_name }}
 
   build-and-push-frontend:
+    needs: ci-checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code

@@ -70,38 +70,38 @@ class TranslationHandler:
     def _split_text(self, text: str) -> list[str]:
         """根据标点符号拆分文本，保留标点"""
         # 匹配中英文句末标点
-        parts = re.split(r'([.!?。！？]+)', text)
+        parts = re.split(r"([.!?。！？]+)", text)
         sentences = []
-        
+
         # 重新组合句子和标点: "Hello" + "." -> "Hello."
-        #parts list like: ['Hello', '.', 'World', '!', '']
+        # parts list like: ['Hello', '.', 'World', '!', '']
         for i in range(0, len(parts) - 1, 2):
-            sentence = parts[i] + parts[i+1]
+            sentence = parts[i] + parts[i + 1]
             if sentence.strip():
                 sentences.append(sentence.strip())
-        
+
         # 处理可能的剩余部分 (无标点结尾)
         if len(parts) % 2 != 0:
             tail = parts[-1]
             if tail.strip():
                 sentences.append(tail.strip())
-                
+
         return sentences
 
     async def _translate_sequentially(self, text: str, is_final: bool) -> list[dict]:
         """拆分文本并串行翻译"""
         sentences = self._split_text(text)
         results = []
-        
+
         for sentence in sentences:
             if not sentence.strip():
                 continue
-            
+
             # 串行等待翻译完成
             res = await self._translate(sentence, is_final=is_final)
             if res:
                 results.append(res)
-        
+
         return results
 
     async def _fast_mode(self, text: str, is_final: bool) -> list[dict]:
