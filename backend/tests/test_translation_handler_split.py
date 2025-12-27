@@ -1,8 +1,10 @@
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+
 from app.services.websocket.translation_handler import TranslationHandler
-from app.services.llm_service import LLMService
+
 
 class MockLLMService:
     def __init__(self):

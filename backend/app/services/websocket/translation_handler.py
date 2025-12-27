@@ -5,8 +5,8 @@ Translation Handler
 
 from __future__ import annotations
 
-import re
 import asyncio
+import re
 
 from loguru import logger
 

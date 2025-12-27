@@ -1,8 +1,10 @@
-import pytest
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+
+import pytest
+
 from app.schemas.user import RecordingConfig, UserConfigResponse, UserConfigUpdate
+
 
 @pytest.fixture
 def mock_user():

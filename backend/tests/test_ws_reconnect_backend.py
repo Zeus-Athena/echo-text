@@ -1,9 +1,12 @@
-import pytest
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
-from starlette.websockets import WebSocketState, WebSocketDisconnect
+
+import pytest
+from starlette.websockets import WebSocketDisconnect, WebSocketState
+
 from app.api.v1.ws_v2 import websocket_transcribe_v2
+
 
 class SimpleMock:
     def __init__(self, **kwargs):
