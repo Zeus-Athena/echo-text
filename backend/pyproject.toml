@@ -1,0 +1,36 @@
+[project]
+name = "echotext-backend"
+version = "1.1.7"
+description = "EchoText Backend - Real-time transcription and translation system"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (let formatter handle)
+    "B008",  # FastAPI Depends() in function defaults is valid
+    "F821",  # SQLAlchemy forward string references are valid
+    "E402",  # module level import not at top (needed for conditional imports)
+    "B904",  # HTTPException doesn't need 'from err'
+    "E712",  # SQLAlchemy needs == True for proper SQL generation
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true

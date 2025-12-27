@@ -1,0 +1,86 @@
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: echotext
+      POSTGRES_PASSWORD: echotext_password
+      POSTGRES_DB: echotext
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U echotext" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    image: ttjade/echo-text-backend:latest
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://echotext:echotext_password@db:5432/echotext
+      - SECRET_KEY=changethissecretkeyinproduction
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    # ports:
+    #   - "8000:8000"  # Hidden, accessed via frontend proxy
+    volumes:
+      - ./data/uploads:/app/uploads # Persist uploaded files
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Frontend (Nginx serving React)
+  frontend:
+    image: ttjade/echo-text-frontend:latest
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+
+  # Redis (for task queue)
+  redis:
+    image: redis:7-alpine
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ARQ Worker (background task processor)
+  arq-worker:
+    image: ttjade/echo-text-backend:latest
+    restart: always
+    command: arq app.workers.tasks.WorkerSettings
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://echotext:echotext_password@db:5432/echotext
+      - SECRET_KEY=changethissecretkeyinproduction
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./data/uploads:/app/uploads
+
+volumes:
+  redis_data:
