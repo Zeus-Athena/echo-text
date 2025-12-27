@@ -141,7 +141,6 @@ const LLM_PROVIDERS = {
     GROQ: {
         base_url: 'https://api.groq.com/openai/v1',
         models: [
-            { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', pricing: '免费' },
             { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', pricing: '免费' },
         ]
     }

@@ -203,8 +203,8 @@ async def websocket_transcribe_v2(websocket: WebSocket, token: str):
                     while True:
                         event = await queue.get()
                         try:
-                            result = await handler.handle_transcript(event.text, event.is_final)
-                            if result:
+                            results = await handler.handle_transcript(event.text, event.is_final)
+                            for result in results:
                                 await manager.send_translation(
                                     client_id, result["text"], result["is_final"]
                                 )

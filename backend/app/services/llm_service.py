@@ -100,7 +100,11 @@ class LLMService:
         # Build context section if provided
         context_section = ""
         if context:
-            context_section = f'\n\nFor context, the previous text was: "{context}"'
+            context_section = f"""
+<context>
+The following is previous text for context only. DO NOT TRANSLATE THIS:
+"{context}"
+</context>"""
 
         if custom_prompt:
             # Custom prompt overrides default
@@ -113,13 +117,19 @@ class LLMService:
                 system_prompt = system_prompt.replace("{{text}}", text)
         else:
             system_prompt = f"""You are a professional translator.
-Translate the following text from {source_name} to {target_name}.
+Translate the user input from {source_name} to {target_name}.
 {style_hint}
 
-RULES:
-1. Translate EVERY sentence completely. Do NOT summarize or skip any content.
-2. If the text appears incomplete (ends mid-sentence), translate what is given literally.
-3. Only output the translated text, nothing else.{context_section}"""
+{context_section}
+
+<rules>
+1. Translate EVERY SINGLE sentence word-by-word.
+2. Do NOT skip, merge, or summarize ANY content.
+3. The output must have the SAME number of sentences as the input.
+4. If the text appears incomplete (ends mid-sentence), translate what is given literally.
+5. Do NOT add explanations. Only output the translated text.
+6. Do NOT translate the content inside <context> tags.
+</rules>"""
 
         try:
             response = await self.client.chat.completions.create(
@@ -157,9 +167,16 @@ RULES:
             if "{{text}}" in system_prompt:
                 system_prompt = system_prompt.replace("{{text}}", text)
         else:
-            system_prompt = f"""You are a professional translator. 
-Translate the following text from {source_name} to {target_name}.
-Only output the translated text, nothing else."""
+            system_prompt = f"""You are a professional translator.
+Translate the user input from {source_name} to {target_name}.
+
+<rules>
+1. Translate EVERY SINGLE sentence word-by-word.
+2. Do NOT skip, merge, or summarize ANY content.
+3. The output must have the SAME number of sentences as the input.
+4. If the text appears incomplete (ends mid-sentence), translate what is given literally.
+5. Do NOT add explanations. Only output the translated text.
+</rules>"""
 
         try:
             stream = await self.client.chat.completions.create(

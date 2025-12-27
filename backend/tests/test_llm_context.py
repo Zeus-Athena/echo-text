@@ -101,4 +101,5 @@ async def test_translate_prompt_contains_rules():
     system_msg = messages[0]["content"] if messages else ""
 
     # Should contain anti-summarization rules
-    assert "Do NOT summarize" in system_msg or "EVERY sentence" in system_msg
+    assert "<rules>" in system_msg
+    assert "Do NOT skip" in system_msg

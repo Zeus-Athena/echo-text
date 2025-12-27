@@ -80,9 +80,9 @@ class TestTranslationHandler:
         """极速模式：final 文本无条件翻译"""
         result = await handler_fast_mode.handle_transcript("Hello world", is_final=True)
 
-        assert result is not None
-        assert result["text"] == "翻译结果"
-        assert result["is_final"] is True
+        assert result
+        assert result[0]["text"] == "翻译结果"
+        assert result[0]["is_final"] is True
         mock_llm_service.translate.assert_called_once()
 
     @pytest.mark.asyncio
@@ -92,14 +92,14 @@ class TestTranslationHandler:
         """极速模式：interim 首次达到 5 词触发翻译"""
         # 4 词不触发
         result = await handler_fast_mode.handle_transcript("one two three four", is_final=False)
-        assert result is None
+        assert result == []
 
         # 5 词触发
         result = await handler_fast_mode.handle_transcript(
             "one two three four five", is_final=False
         )
-        assert result is not None
-        assert result["is_final"] is False
+        assert result
+        assert result[0]["is_final"] is False
 
     @pytest.mark.asyncio
     async def test_fast_mode_interim_5_word_increment(self, handler_fast_mode, mock_llm_service):
@@ -112,13 +112,13 @@ class TestTranslationHandler:
         result = await handler_fast_mode.handle_transcript(
             "one two three four five six seven eight nine", is_final=False
         )
-        assert result is None
+        assert result == []
 
         # 10 词触发
         result = await handler_fast_mode.handle_transcript(
             "one two three four five six seven eight nine ten", is_final=False
         )
-        assert result is not None
+        assert result
         assert handler_fast_mode._last_word_count == 10
 
     @pytest.mark.asyncio
@@ -141,7 +141,7 @@ class TestTranslationHandler:
             "This is interim text", is_final=False
         )
 
-        assert result is None
+        assert result == []
         mock_llm_service.translate.assert_not_called()
 
     @pytest.mark.asyncio
@@ -161,21 +161,21 @@ class TestTranslationHandler:
         await handler_throttle_mode.handle_transcript("Hello", is_final=True)
         result = await handler_throttle_mode.handle_transcript("world.", is_final=True)
 
-        assert result is not None
+        assert result
         assert handler_throttle_mode._buffer == ""
         mock_llm_service.translate.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_throttle_mode_flushes_on_50_words(self, handler_throttle_mode, mock_llm_service):
-        """节流模式：50 词上限触发翻译"""
-        # 累积 49 词
-        words_49 = " ".join([f"word{i}" for i in range(49)])
-        await handler_throttle_mode.handle_transcript(words_49, is_final=True)
+    async def test_throttle_mode_flushes_on_30_words(self, handler_throttle_mode, mock_llm_service):
+        """节流模式：30 词上限触发翻译"""
+        # 累积 29 词
+        words_29 = " ".join([f"word{i}" for i in range(29)])
+        await handler_throttle_mode.handle_transcript(words_29, is_final=True)
 
-        # 第 50 词触发
-        result = await handler_throttle_mode.handle_transcript("word50", is_final=True)
+        # 第 30 词触发
+        result = await handler_throttle_mode.handle_transcript("word30", is_final=True)
 
-        assert result is not None
+        assert result
         mock_llm_service.translate.assert_called_once()
 
     @pytest.mark.asyncio
@@ -186,7 +186,7 @@ class TestTranslationHandler:
         for _, punct in enumerate(punctuations):
             handler_throttle_mode._buffer = ""
             result = await handler_throttle_mode.handle_transcript(f"Text{punct}", is_final=True)
-            assert result is not None, f"Punctuation {punct} should trigger translation"
+            assert result, f"Punctuation {punct} should trigger translation"
 
     # === flush 测试 ===
 
@@ -197,8 +197,8 @@ class TestTranslationHandler:
 
         result = await handler_throttle_mode.flush()
 
-        assert result is not None
-        assert result["text"] == "翻译结果"
+        assert result
+        assert result[0]["text"] == "翻译结果"
         assert handler_throttle_mode._buffer == ""
 
     @pytest.mark.asyncio
@@ -208,7 +208,7 @@ class TestTranslationHandler:
 
         result = await handler_throttle_mode.flush()
 
-        assert result is None
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_flush_whitespace_only_returns_none(self, handler_throttle_mode):
@@ -217,7 +217,7 @@ class TestTranslationHandler:
 
         result = await handler_throttle_mode.flush()
 
-        assert result is None
+        assert result == []
 
     # === 错误处理测试 ===
 
@@ -235,7 +235,7 @@ class TestTranslationHandler:
 
         result = await handler_fast_mode.handle_transcript("Hello", is_final=True)
 
-        assert result is None
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_translation_error_returns_none(self, handler_fast_mode, mock_llm_service):
@@ -244,21 +244,21 @@ class TestTranslationHandler:
 
         result = await handler_fast_mode.handle_transcript("Hello", is_final=True)
 
-        assert result is None
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_empty_text_returns_none(self, handler_fast_mode):
         """空文本返回 None"""
         result = await handler_fast_mode.handle_transcript("", is_final=True)
 
-        assert result is None
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_whitespace_text_returns_none(self, handler_fast_mode):
         """纯空白文本返回 None"""
         result = await handler_fast_mode.handle_transcript("   ", is_final=True)
 
-        assert result is None
+        assert result == []
 
     # === 上下文测试 ===
 

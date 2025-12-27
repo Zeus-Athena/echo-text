@@ -67,6 +67,14 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
         segmentHardThreshold = 100
     } = options
 
+    // Use refs for segment thresholds to ensure they update when config loads
+    const segmentSoftThresholdRef = useRef(segmentSoftThreshold)
+    const segmentHardThresholdRef = useRef(segmentHardThreshold)
+    useEffect(() => {
+        segmentSoftThresholdRef.current = segmentSoftThreshold
+        segmentHardThresholdRef.current = segmentHardThreshold
+    }, [segmentSoftThreshold, segmentHardThreshold])
+
     // Use ref for isPaused to access in callbacks without stale closure
     const isPausedRef = useRef(isPaused)
     const prevIsPausedRef = useRef(isPaused)
@@ -205,7 +213,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
         }
 
         // 软阈值：超过设定词数开始找标点切分
-        if (wordCount > segmentSoftThreshold) {
+        if (wordCount > segmentSoftThresholdRef.current) {
             // 查找最后一个句末标点
             const sentenceEnders = /[.!?。！？]/g
             let lastMatch = null
@@ -248,7 +256,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
         }
 
         // 硬上限：超过设定上限强制切分
-        if (wordCount > segmentHardThreshold) {
+        if (wordCount > segmentHardThresholdRef.current) {
             const startTime = segmentStartTimeRef.current
             const endTime = segmentEndTimeRef.current
 
@@ -339,8 +347,8 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
         }
     }, [])
 
-    // Connect to WebSocket with reconnection support
-    const connect = useCallback(async (isReconnect = false): Promise<WebSocket> => {
+    // Connect to WebSocket (reconnection is disabled to preserve saved audio)
+    const connect = useCallback(async (): Promise<WebSocket> => {
         const token = localStorage.getItem('access_token')
         if (!token) {
             throw new Error('Not authenticated')
@@ -348,7 +356,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
 
         setState(prev => ({
             ...prev,
-            connectionStatus: isReconnect ? 'reconnecting' : 'connecting',
+            connectionStatus: 'connecting',
             error: null
         }))
 
@@ -377,51 +385,9 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
                 // Start heartbeat
                 startHeartbeat(ws)
 
-                // If reconnecting during recording, perform "Soft Reset":
-                // 1. Restart MediaRecorder to get a fresh stream with WebM headers
-                // 2. Send 'start' action with same recording_id instead of 'resume'
-                if (isReconnect && shouldReconnectRef.current && currentRecordingIdRef.current) {
-                    // Stop old recorder if running
-                    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-                        try {
-                            mediaRecorderRef.current.stop()
-                        } catch (e) {
-                            console.warn('[STT] Failed to stop old recorder during reset:', e)
-                        }
-                    }
-
-                    // Setup new recorder on existing stream
-                    if (streamRef.current) {
-                        const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-                            ? 'audio/webm;codecs=opus'
-                            : 'audio/webm'
-
-                        const newMediaRecorder = new MediaRecorder(streamRef.current, { mimeType })
-
-                        newMediaRecorder.ondataavailable = (e) => {
-                            if (isPausedRef.current) return
-                            // Use wsRef.current to get the active connection (not the stale closure-captured ws)
-                            const activeWs = wsRef.current
-                            if (e.data.size > 0 && activeWs && activeWs.readyState === WebSocket.OPEN) {
-                                activeWs.send(e.data)
-                                console.log(`[STT] Reconnected stream, sending chunk size=${e.data.size}`)
-                            }
-                        }
-
-                        mediaRecorderRef.current = newMediaRecorder
-                        newMediaRecorder.start(500)
-                    }
-
-                    // Send start action with existing ID to re-initialize backend processor
-                    ws.send(JSON.stringify({
-                        action: 'start',
-                        source_lang: currentSourceLangRef.current,
-                        target_lang: currentTargetLangRef.current,
-                        recording_id: currentRecordingIdRef.current,
-                        silence_threshold: currentSilenceThresholdRef.current,
-                    }))
-                    console.log('[STT] Reset stream and re-sent start action after reconnect')
-                }
+                // Note: Reconnection is disabled - if connection drops during recording,
+                // the audio is saved on the backend and user is notified.
+                // This prevents the reconnection overwriting issue.
 
                 resolve(ws)
             }
@@ -434,44 +400,32 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
                 stopHeartbeat()
                 setState(prev => ({ ...prev, isConnected: false }))
 
-                // Attempt reconnection if recording and not deliberately closed
-                if (shouldReconnectRef.current && event.code !== 1000) {
-                    console.log('[WS onclose] Attempting reconnection, shouldReconnect=true, code=', event.code)
-                    setState(prev => {
-                        const newAttempts = prev.reconnectAttempts + 1
+                // Don't attempt reconnection - disconnection will preserve saved audio
+                // Reconnecting would create a new processor that overwrites the saved data
+                if (event.code !== 1000) {
+                    // Unexpected disconnection (network issue, server crash, etc.)
+                    console.log('[WS onclose] Connection lost unexpectedly, code=', event.code)
 
-                        if (newAttempts <= maxReconnectAttempts) {
-                            // Exponential backoff capped at 30s
-                            const delay = Math.min(30000, reconnectDelay * Math.pow(2, newAttempts - 1))
-                            console.log(`WebSocket closed, attempting reconnect ${newAttempts}/${maxReconnectAttempts} in ${delay}ms`)
-                            console.log('[WS] Setting connectionStatus to: reconnecting')
-
-                            reconnectTimeoutRef.current = window.setTimeout(async () => {
-                                try {
-                                    wsRef.current = await connect(true)
-                                } catch (err) {
-                                    console.error('Reconnection failed:', err)
-                                }
-                            }, delay)
-
-                            return {
-                                ...prev,
-                                connectionStatus: 'reconnecting',
-                                reconnectAttempts: newAttempts,
-                            }
-                        } else {
-                            // Max attempts reached
-                            console.log('[WS] Max attempts reached, setting connectionStatus to: disconnected')
-                            return {
-                                ...prev,
-                                connectionStatus: 'disconnected',
-                                error: '连接失败，请检查网络后重试',
-                            }
-                        }
-                    })
+                    if (shouldReconnectRef.current) {
+                        // Was recording when disconnected - audio is saved on backend
+                        console.log('[WS] Recording interrupted, audio saved on server')
+                        setState(prev => ({
+                            ...prev,
+                            connectionStatus: 'disconnected',
+                            error: '网络连接断开，录音已保存',
+                        }))
+                        // Clear the recording state to prevent further actions
+                        shouldReconnectRef.current = false
+                    } else {
+                        setState(prev => ({
+                            ...prev,
+                            connectionStatus: 'disconnected',
+                            error: '连接断开',
+                        }))
+                    }
                 } else {
-                    console.log('[WS onclose] No reconnection, shouldReconnect=', shouldReconnectRef.current, 'code=', event.code)
-                    console.log('[WS] Setting connectionStatus to: disconnected')
+                    // Normal close (code 1000)
+                    console.log('[WS onclose] Normal close, code=', event.code)
                     setState(prev => ({ ...prev, connectionStatus: 'disconnected' }))
                 }
             }

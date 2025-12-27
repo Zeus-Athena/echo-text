@@ -122,3 +122,86 @@ async def test_get_llm_service():
     service = await get_llm_service(None)
 
     assert service is not None
+
+
+@pytest.mark.asyncio
+async def test_translate_prompt_contains_no_skip_rules():
+    """验证：翻译 prompt 包含禁止省略内容的规则"""
+    from app.services.llm_service import LLMService
+
+    mock_config = MagicMock()
+    mock_config.llm_provider = "OpenAI"
+    mock_config.llm_api_key = "key"
+    mock_config.llm_openai_api_key = "key"
+    mock_config.llm_siliconflow_api_key = None
+    mock_config.llm_base_url = None
+    mock_config.llm_model = "gpt-4"
+
+    service = LLMService(mock_config)
+
+    mock_response = MagicMock()
+    mock_response.choices = [MagicMock(message=MagicMock(content="翻译结果"))]
+
+    captured_messages = []
+
+    async def capture_call(*args, **kwargs):
+        captured_messages.append(kwargs.get("messages", []))
+        return mock_response
+
+    with patch.object(service, "client") as mock_client:
+        mock_client.chat.completions.create = capture_call
+
+        await service.translate("Hello world. How are you?", "en", "zh")
+
+    # 验证 system prompt 包含关键规则
+    assert len(captured_messages) == 1
+    system_prompt = captured_messages[0][0]["content"]
+    # Update assertions to check for XML tags and new structure
+    assert "<rules>" in system_prompt
+    assert "Do NOT skip" in system_prompt
+    assert "EVERY SINGLE sentence" in system_prompt
+    assert "SAME number of sentences" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_translate_stream_prompt_contains_no_skip_rules():
+    """验证：流式翻译 prompt 包含禁止省略内容的规则"""
+    from app.services.llm_service import LLMService
+
+    mock_config = MagicMock()
+    mock_config.llm_provider = "OpenAI"
+    mock_config.llm_api_key = "key"
+    mock_config.llm_openai_api_key = "key"
+    mock_config.llm_siliconflow_api_key = None
+    mock_config.llm_base_url = None
+    mock_config.llm_model = "gpt-4"
+
+    service = LLMService(mock_config)
+
+    # Mock stream response
+    mock_chunk = MagicMock()
+    mock_chunk.choices = [MagicMock(delta=MagicMock(content="Chunk"))]
+    
+    # Create an async iterator for the stream
+    async def async_stream():
+        yield mock_chunk
+
+    captured_messages = []
+
+    async def capture_call(*args, **kwargs):
+        captured_messages.append(kwargs.get("messages", []))
+        return async_stream()
+
+    with patch.object(service, "client") as mock_client:
+        mock_client.chat.completions.create = capture_call
+
+        # Consume the stream
+        async for _ in service.translate_stream("Hello", "en", "zh"):
+            pass
+
+    # 验证 system prompt
+    assert len(captured_messages) == 1
+    system_prompt = captured_messages[0][0]["content"]
+    # Update assertions for streaming prompt
+    assert "<rules>" in system_prompt
+    assert "Do NOT skip" in system_prompt
