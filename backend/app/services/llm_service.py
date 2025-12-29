@@ -28,6 +28,8 @@ class LLMService:
                 self.api_key = config.llm_groq_api_key
             elif self.provider == "siliconflow":
                 self.api_key = config.llm_siliconflow_api_key
+            elif self.provider == "siliconflowglobal":
+                self.api_key = config.llm_siliconflowglobal_api_key
             else:
                 self.api_key = config.llm_api_key
         else:
@@ -63,6 +65,25 @@ class LLMService:
                             "balance": float(balance) if balance else 0,
                             "currency": "CNY",
                             "provider": "SiliconFlow",
+                        }
+                    else:
+                        return {"error": f"API Error: {resp.status_code}"}
+
+            if self.provider == "siliconflowglobal":
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        "https://api.siliconflow.com/v1/user/info",
+                        headers={"Authorization": f"Bearer {self.api_key}"},
+                        timeout=10.0,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        user_data = data.get("data", {})
+                        balance = user_data.get("balance")
+                        return {
+                            "balance": float(balance) if balance else 0,
+                            "currency": "USD",
+                            "provider": "SiliconFlowGlobal",
                         }
                     else:
                         return {"error": f"API Error: {resp.status_code}"}
@@ -132,11 +153,16 @@ Translate the user input from {source_name} to {target_name}.
 </rules>"""
 
         try:
+            # For Qwen3 models, add /no_think instruction to disable thinking chain
+            actual_text = text
+            if "qwen3" in self.model.lower():
+                actual_text = f"/no_think\n{text}"
+
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text},
+                    {"role": "user", "content": actual_text},
                 ],
                 temperature=0.3,
             )
@@ -179,11 +205,16 @@ Translate the user input from {source_name} to {target_name}.
 </rules>"""
 
         try:
+            # For Qwen3 models, add /no_think instruction to disable thinking chain
+            actual_text = text
+            if "qwen3" in self.model.lower():
+                actual_text = f"/no_think\n{text}"
+
             stream = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": text},
+                    {"role": "user", "content": actual_text},
                 ],
                 temperature=0.3,
                 stream=True,

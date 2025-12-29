@@ -79,6 +79,9 @@ async def test_get_user_config_returns_new_fields(mock_user, mock_db):
         "llm_model": "test",
         "llm_groq_api_key": None,
         "llm_siliconflow_api_key": None,
+        "llm_siliconflowglobal_api_key": None,  # New field
+        "llm_fireworks_api_key": None,      # New field
+        "llm_urls": None,  # 新增字段
         "stt_provider": "Deepgram",
         "stt_api_key": "test",
         "stt_base_url": "https://test.com",
@@ -87,10 +90,12 @@ async def test_get_user_config_returns_new_fields(mock_user, mock_db):
         "stt_deepgram_api_key": None,
         "stt_openai_api_key": None,
         "stt_siliconflow_api_key": None,
+        "stt_urls": None,  # 新增字段
         "tts_provider": "edge",
         "tts_api_key": None,
         "tts_voice": "zh-CN-XiaoxiaoNeural",
-        "tts_base_url": None, # 补全这一项
+        "tts_base_url": None,
+        "tts_urls": None,  # 新增字段
         "dict_provider": "llm",
         "dict_api_key": None,
         "theme": "dark",

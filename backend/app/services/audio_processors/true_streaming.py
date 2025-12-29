@@ -236,6 +236,11 @@ class TrueStreamingProcessor(BaseAudioProcessor):
             if words and "speaker" in words[0]:
                 speaker = f"Speaker {words[0]['speaker']}"
 
+            # 为 Final 消息生成唯一 ID（用于关联翻译）
+            import uuid
+
+            transcript_id = str(uuid.uuid4()) if is_final else ""
+
             # 发送事件
             event = TranscriptEvent(
                 text=text,
@@ -244,6 +249,7 @@ class TrueStreamingProcessor(BaseAudioProcessor):
                 start_time=data.get("start", 0),
                 end_time=data.get("start", 0) + data.get("duration", 0),
                 confidence=alt.get("confidence", 1.0),
+                transcript_id=transcript_id,
             )
 
             await self._emit_transcript(event)

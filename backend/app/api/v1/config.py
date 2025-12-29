@@ -46,6 +46,10 @@ async def test_llm_config(
                     api_key = user_config.llm_groq_api_key
                 elif p == "siliconflow":
                     api_key = user_config.llm_siliconflow_api_key
+                elif p == "siliconflowglobal":
+                    api_key = user_config.llm_siliconflowglobal_api_key
+                elif p == "fireworks":
+                    api_key = user_config.llm_fireworks_api_key
                 else:
                     api_key = user_config.llm_api_key
 

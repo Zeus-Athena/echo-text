@@ -121,6 +121,10 @@ async def get_user_config(
         active_llm_key = api_config.llm_groq_api_key
     elif api_config.llm_provider and api_config.llm_provider.lower() == "siliconflow":
         active_llm_key = api_config.llm_siliconflow_api_key
+    elif api_config.llm_provider and api_config.llm_provider.lower() == "siliconflowglobal":
+        active_llm_key = api_config.llm_siliconflowglobal_api_key
+    elif api_config.llm_provider and api_config.llm_provider.lower() == "fireworks":
+        active_llm_key = api_config.llm_fireworks_api_key
 
     # Determine active STT key
     active_stt_key = api_config.stt_api_key
@@ -139,6 +143,17 @@ async def get_user_config(
     def mask_key(key):
         return "***" if key else None
 
+    # Parse URLs JSON
+    import json
+
+    def parse_urls(urls_json: str | None) -> dict:
+        if not urls_json:
+            return {}
+        try:
+            return json.loads(urls_json)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
     return UserConfigResponse(
         llm=LLMConfig(
             provider=api_config.llm_provider,
@@ -148,7 +163,10 @@ async def get_user_config(
             keys={
                 "groq": mask_key(api_config.llm_groq_api_key),
                 "siliconflow": mask_key(api_config.llm_siliconflow_api_key),
+                "siliconflowglobal": mask_key(api_config.llm_siliconflowglobal_api_key),
+                "fireworks": mask_key(api_config.llm_fireworks_api_key),
             },
+            urls=parse_urls(api_config.llm_urls),
         ),
         stt=STTConfig(
             provider=api_config.stt_provider,
@@ -161,12 +179,14 @@ async def get_user_config(
                 "openai": mask_key(api_config.stt_openai_api_key),
                 "siliconflow": mask_key(api_config.stt_siliconflow_api_key),
             },
+            urls=parse_urls(api_config.stt_urls),
         ),
         tts=TTSConfig(
             provider=api_config.tts_provider,
             api_key="***" if api_config.tts_api_key else None,
             base_url=api_config.tts_base_url,
             voice=api_config.tts_voice,
+            urls=parse_urls(api_config.tts_urls),
         ),
         dict=DictConfig(
             provider=api_config.dict_provider, api_key="***" if api_config.dict_api_key else None
@@ -219,6 +239,10 @@ async def update_user_config(
                     config.llm_groq_api_key = config_data.llm.api_key
                 elif p == "siliconflow":
                     config.llm_siliconflow_api_key = config_data.llm.api_key
+                elif p == "siliconflowglobal":
+                    config.llm_siliconflowglobal_api_key = config_data.llm.api_key
+                elif p == "fireworks":
+                    config.llm_fireworks_api_key = config_data.llm.api_key
 
         if config_data.llm.base_url is not None:
             config.llm_base_url = config_data.llm.base_url
@@ -235,6 +259,29 @@ async def update_user_config(
                 key = config_data.llm.keys["siliconflow"]
                 if key is not None and key != "***":
                     config.llm_siliconflow_api_key = key
+            if "siliconflowglobal" in config_data.llm.keys:
+                key = config_data.llm.keys["siliconflowglobal"]
+                if key is not None and key != "***":
+                    config.llm_siliconflowglobal_api_key = key
+            if "fireworks" in config_data.llm.keys:
+                key = config_data.llm.keys["fireworks"]
+                if key is not None and key != "***":
+                    config.llm_fireworks_api_key = key
+
+        # Update LLM provider-specific URLs
+        if config_data.llm.urls is not None:
+            import json
+            # Merge with existing URLs
+            existing_urls = {}
+            if config.llm_urls:
+                try:
+                    existing_urls = json.loads(config.llm_urls)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            # Update with new values
+            for provider, url in config_data.llm.urls.items():
+                existing_urls[provider] = url
+            config.llm_urls = json.dumps(existing_urls)
 
     # Update STT config
     if config_data.stt:
@@ -287,6 +334,19 @@ async def update_user_config(
                 if key is not None and key != "***":
                     config.stt_siliconflow_api_key = key
 
+        # Update STT provider-specific URLs
+        if config_data.stt.urls is not None:
+            import json
+            existing_urls = {}
+            if config.stt_urls:
+                try:
+                    existing_urls = json.loads(config.stt_urls)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            for provider, url in config_data.stt.urls.items():
+                existing_urls[provider] = url
+            config.stt_urls = json.dumps(existing_urls)
+
     # Update TTS config
     if config_data.tts:
         if config_data.tts.provider is not None:
@@ -295,6 +355,19 @@ async def update_user_config(
             config.tts_api_key = config_data.tts.api_key
         if config_data.tts.voice is not None:
             config.tts_voice = config_data.tts.voice
+
+        # Update TTS provider-specific URLs
+        if config_data.tts.urls is not None:
+            import json
+            existing_urls = {}
+            if config.tts_urls:
+                try:
+                    existing_urls = json.loads(config.tts_urls)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            for provider, url in config_data.tts.urls.items():
+                existing_urls[provider] = url
+            config.tts_urls = json.dumps(existing_urls)
 
     # Update Dict config
     if config_data.dict:

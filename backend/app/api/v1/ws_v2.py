@@ -203,10 +203,16 @@ async def websocket_transcribe_v2(websocket: WebSocket, token: str):
                     while True:
                         event = await queue.get()
                         try:
-                            results = await handler.handle_transcript(event.text, event.is_final)
+                            # 传递 transcript_id 以便前端关联
+                            results = await handler.handle_transcript(
+                                event.text, event.is_final, event.transcript_id
+                            )
                             for result in results:
                                 await manager.send_translation(
-                                    client_id, result["text"], result["is_final"]
+                                    client_id,
+                                    result["text"],
+                                    result["is_final"],
+                                    result.get("transcript_id", ""),
                                 )
                         except Exception as e:
                             logger.error(f"Translation worker error: {e}")
@@ -217,7 +223,7 @@ async def websocket_transcribe_v2(websocket: WebSocket, token: str):
 
             # === 6. 转录回调 ===
             async def on_transcript(event: TranscriptEvent):
-                # 发送转录结果 (立即发送，无阻塞) - 包含精确时间戳供前端使用
+                # 发送转录结果 (立即发送，无阻塞) - 包含精确时间戳和 transcript_id
                 await manager.send_transcript(
                     client_id,
                     event.text,
@@ -225,6 +231,7 @@ async def websocket_transcribe_v2(websocket: WebSocket, token: str):
                     event.speaker,
                     event.start_time,
                     event.end_time,
+                    event.transcript_id,
                 )
 
                 # 持久化到数据库 (Async, Fast)
@@ -361,10 +368,13 @@ async def websocket_transcribe_v2(websocket: WebSocket, token: str):
 
                                 # 刷新翻译缓冲区 (Flush)
                                 if translator:
-                                    result = await translator.flush()
-                                    if result:
+                                    flush_results = await translator.flush()
+                                    for result in flush_results:
                                         await manager.send_translation(
-                                            client_id, result["text"], result["is_final"]
+                                            client_id,
+                                            result["text"],
+                                            result["is_final"],
+                                            result.get("transcript_id", ""),
                                         )
 
                                 # 取消任务
@@ -406,7 +416,9 @@ async def websocket_transcribe_v2(websocket: WebSocket, token: str):
                 pass
 
         # 断开时保存音频
-        if session.is_recording and not session.audio_saved and processor:
+        # 修复: 只要有 recording_id 和 processor 就尝试保存，不依赖 is_recording
+        # (因为 stop() 可能会先设置 is_recording=False，但如果在保存前 WS 断开，这里仍需补救)
+        if session.recording_id and not session.audio_saved and processor:
             try:
                 async with async_session() as db:
                     audio_saver = AudioSaver(db)

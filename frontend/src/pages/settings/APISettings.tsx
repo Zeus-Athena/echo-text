@@ -33,7 +33,7 @@ function BalanceCard({
 
     // Supported providers for balance check
     const supportedProviders = serviceType === 'llm'
-        ? ['siliconflow']
+        ? ['siliconflow', 'siliconflowglobal']
         : ['deepgram', 'siliconflow']
 
     const isSupported = supportedProviders.includes(provider.toLowerCase())
@@ -126,6 +126,65 @@ function TestResultDisplay({ result, onClear }: { result: TestResult, onClear: (
     )
 }
 
+// Base URL Input with default value display
+function BaseUrlInput({
+    value,
+    defaultValue,
+    onChange,
+    className = ''
+}: {
+    value: string;
+    defaultValue: string;
+    onChange: (val: string) => void;
+    className?: string;
+}) {
+    const [isFocused, setIsFocused] = useState(false)
+    const [inputValue, setInputValue] = useState('')
+
+    const isDefault = value === defaultValue
+    const displayValue = isDefault ? `${defaultValue}（默认）` : value
+
+    const handleFocus = () => {
+        setIsFocused(true)
+        // When focusing, show the actual URL without suffix for editing
+        setInputValue(isDefault ? '' : value)
+    }
+
+    const handleBlur = () => {
+        setIsFocused(false)
+        // On blur, if empty, revert to default
+        if (inputValue === '' || inputValue === defaultValue) {
+            onChange(defaultValue)
+        } else {
+            onChange(inputValue)
+        }
+    }
+
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setInputValue(e.target.value)
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        // On first keypress when showing default, clear the input
+        if (isDefault && !isFocused) {
+            setInputValue('')
+        }
+    }
+
+    return (
+        <input
+            type="text"
+            value={isFocused ? inputValue : displayValue}
+            onChange={handleChange}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onKeyDown={handleKeyDown}
+            className={`${className} ${isDefault && !isFocused ? 'text-gray-400 dark:text-gray-500' : 'text-gray-900 dark:text-white'}`}
+            style={{ caretColor: isDefault && !isFocused ? 'transparent' : 'auto', direction: 'ltr' }}
+        />
+    )
+}
+
 // Provider configurations
 const LLM_PROVIDERS = {
     SiliconFlow: {
@@ -135,13 +194,32 @@ const LLM_PROVIDERS = {
             { id: 'Pro/deepseek-ai/DeepSeek-V3', name: 'DeepSeek-V3 Pro', pricing: '¥2/M tokens' },
             { id: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek-R1 (推理)', pricing: '¥4/M tokens' },
             { id: 'deepseek-ai/DeepSeek-V2.5', name: 'DeepSeek-V2.5', pricing: '¥0.5/M tokens' },
+            { id: 'Qwen/Qwen3-30B-A3B-Instruct-2507', name: 'Qwen3-30B-A3B (快速)', pricing: '¥0.35/M tokens' },
             { id: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B', name: 'DeepSeek-R1-7B (免费)', pricing: '免费' },
+        ]
+    },
+    SiliconFlowGlobal: {
+        base_url: 'https://api.siliconflow.com/v1',
+        models: [
+            { id: 'Qwen/Qwen3-30B-A3B-Instruct-2507', name: 'Qwen3-30B-A3B', pricing: '$0.3/M tokens' },
+            { id: 'Qwen/Qwen3-Next-80B-A3B-Instruct', name: 'Qwen3-Next-80B-A3B', pricing: '$1.4/M tokens' },
+            { id: 'Qwen/Qwen3-235B-A22B-Instruct-2507', name: 'Qwen3-235B-A22B', pricing: '$0.6/M tokens' },
         ]
     },
     GROQ: {
         base_url: 'https://api.groq.com/openai/v1',
         models: [
             { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', pricing: '免费' },
+        ]
+    },
+    Fireworks: {
+        base_url: 'https://api.fireworks.ai/inference/v1',
+        models: [
+            { id: 'accounts/fireworks/models/deepseek-v3p2', name: 'DeepSeek V3.2 (精准)', pricing: '$0.56/$1.68 /M' },
+            { id: 'accounts/fireworks/models/qwen3-235b-a22b', name: 'Qwen3 235B A22B (基础)', pricing: '$0.22/$0.88 /M' },
+            { id: 'accounts/fireworks/models/qwen3-235b-a22b-instruct-2507', name: 'Qwen3 235B Instruct 2507 (推荐)', pricing: '$0.22/$0.88 /M' },
+            { id: 'accounts/fireworks/models/qwen3-235b-a22b-thinking-2507', name: 'Qwen3 235B Thinking 2507', pricing: '$0.22/$0.88 /M' },
+            { id: 'accounts/fireworks/models/gpt-oss-120b', name: 'GPT-OSS 120B (便宜)', pricing: '$0.15/$0.60 /M' },
         ]
     }
 }
@@ -200,16 +278,23 @@ export function APISettings() {
         api_key: '',
         base_url: 'https://api.groq.com/openai/v1',
         model: 'llama-3.3-70b-versatile',
-        keys: {} as Record<string, string | null>
+        keys: {} as Record<string, string | null>,
+        urls: {} as Record<string, string | null>
     })
     const [stt, setSTT] = useState({
         provider: 'GROQ',
         api_key: '',
         base_url: 'https://api.groq.com/openai/v1',
         model: 'whisper-large-v3-turbo',
-        keys: {} as Record<string, string | null>
+        keys: {} as Record<string, string | null>,
+        urls: {} as Record<string, string | null>
     })
-    const [tts, setTTS] = useState({ provider: 'edge', voice: 'zh-CN-XiaoxiaoNeural' })
+    const [tts, setTTS] = useState({
+        provider: 'edge',
+        voice: 'zh-CN-XiaoxiaoNeural',
+        base_url: '',
+        urls: {} as Record<string, string | null>
+    })
 
     // Password visibility state
     const [showLLMKey, setShowLLMKey] = useState(false)
@@ -226,12 +311,14 @@ export function APISettings() {
         if (config) {
             const keyName = getKeyName(provider)
             const savedKey = llm.keys[keyName] || ''
+            // Restore saved URL for this provider, or use default
+            const savedUrl = llm.urls[keyName]
 
             setLLM({
                 ...llm,
                 provider,
                 api_key: savedKey,
-                base_url: config.base_url,
+                base_url: savedUrl || config.base_url,
                 model: config.models[0].id
             })
         }
@@ -245,12 +332,14 @@ export function APISettings() {
         if (config) {
             const keyName = getKeyName(provider)
             const savedKey = stt.keys[keyName] || ''
+            // Restore saved URL for this provider, or use default
+            const savedUrl = stt.urls[keyName]
 
             setSTT({
                 ...stt,
                 provider,
                 api_key: savedKey,
-                base_url: config.base_url,
+                base_url: savedUrl || config.base_url,
                 model: config.models[0].id
             })
         }
@@ -280,6 +369,45 @@ export function APISettings() {
                 [keyName]: val === '' ? null : val
             }
         })
+    }
+
+    // Handle LLM URL Change - update both base_url and urls dict
+    const handleLLMUrlChange = (val: string) => {
+        const keyName = getKeyName(llm.provider)
+        const defaultUrl = LLM_PROVIDERS[llm.provider as keyof typeof LLM_PROVIDERS]?.base_url || ''
+        // If value matches default, store null (use default)
+        const urlToStore = val === defaultUrl ? null : (val || null)
+
+        setLLM({
+            ...llm,
+            base_url: val || defaultUrl,
+            urls: {
+                ...llm.urls,
+                [keyName]: urlToStore
+            }
+        })
+    }
+
+    // Handle STT URL Change - update both base_url and urls dict
+    const handleSTTUrlChange = (val: string) => {
+        const keyName = getKeyName(stt.provider)
+        const defaultUrl = STT_PROVIDERS[stt.provider as keyof typeof STT_PROVIDERS]?.base_url || ''
+        const urlToStore = val === defaultUrl ? null : (val || null)
+
+        setSTT({
+            ...stt,
+            base_url: val || defaultUrl,
+            urls: {
+                ...stt.urls,
+                [keyName]: urlToStore
+            }
+        })
+    }
+
+    // Check if URL is using default value
+    const isDefaultUrl = (currentUrl: string, provider: string, providers: typeof LLM_PROVIDERS | typeof STT_PROVIDERS) => {
+        const defaultUrl = providers[provider as keyof typeof providers]?.base_url || ''
+        return currentUrl === defaultUrl
     }
 
     const saveLLMMutation = useMutation({
@@ -378,37 +506,53 @@ export function APISettings() {
     // Sync config to state when loaded
     useEffect(() => {
         if (config) {
-            // LLM: Derive base_url and model from provider to avoid stale values
+            // LLM: Load urls from config, use saved URL for current provider if available
             const llmProvider = config.llm?.provider || 'GROQ'
             const llmConfig = LLM_PROVIDERS[llmProvider as keyof typeof LLM_PROVIDERS]
+            const llmUrls = config.llm?.urls || {}
+            const savedLlmUrl = llmUrls[llmProvider.toLowerCase()]
+
             // Validate model belongs to current provider, otherwise use default
             const savedLlmModel = config.llm?.model
             const isLlmModelValid = llmConfig?.models.some(m => m.id === savedLlmModel)
+
             setLLM({
                 provider: llmProvider,
                 api_key: config.llm?.api_key || '',
-                base_url: llmConfig?.base_url || config.llm?.base_url || 'https://api.groq.com/openai/v1',
+                base_url: savedLlmUrl || llmConfig?.base_url || 'https://api.groq.com/openai/v1',
                 model: isLlmModelValid ? savedLlmModel! : (llmConfig?.models[0]?.id || 'llama-3.3-70b-versatile'),
-                keys: config.llm?.keys || {}
+                keys: config.llm?.keys || {},
+                urls: llmUrls
             })
 
-            // STT: Derive base_url and model from provider to avoid stale values
+            // STT: Load urls from config, use saved URL for current provider if available
             const sttProvider = config.stt?.provider || 'GROQ'
             const sttConfig = STT_PROVIDERS[sttProvider as keyof typeof STT_PROVIDERS]
+            const sttUrls = config.stt?.urls || {}
+            const savedSttUrl = sttUrls[sttProvider.toLowerCase()]
+
             // Validate model belongs to current provider, otherwise use default
             const savedSttModel = config.stt?.model
             const isSttModelValid = sttConfig?.models.some(m => m.id === savedSttModel)
+
             setSTT({
                 provider: sttProvider,
                 api_key: config.stt?.api_key || '',
-                base_url: sttConfig?.base_url || config.stt?.base_url || 'https://api.groq.com/openai/v1',
+                base_url: savedSttUrl || sttConfig?.base_url || 'https://api.groq.com/openai/v1',
                 model: isSttModelValid ? savedSttModel! : (sttConfig?.models[0]?.id || 'whisper-large-v3-turbo'),
-                keys: config.stt?.keys || {}
+                keys: config.stt?.keys || {},
+                urls: sttUrls
             })
+
+            // TTS: Load urls from config
+            const ttsUrls = config.tts?.urls || {}
+            const savedTtsUrl = ttsUrls[(config.tts?.provider || 'edge').toLowerCase()]
 
             setTTS({
                 provider: config.tts?.provider || 'edge',
                 voice: config.tts?.voice || 'zh-CN-XiaoxiaoNeural',
+                base_url: savedTtsUrl || '',
+                urls: ttsUrls
             })
         }
     }, [config])
@@ -463,7 +607,9 @@ export function APISettings() {
                                     className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
                                 >
                                     <option value="SiliconFlow">SiliconFlow (硅基流动)</option>
+                                    <option value="SiliconFlowGlobal">SiliconFlow Global (国际站)</option>
                                     <option value="GROQ">GROQ (免费)</option>
+                                    <option value="Fireworks">Fireworks.ai</option>
                                 </select>
                             </div>
                             <div>
@@ -490,11 +636,10 @@ export function APISettings() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Base URL</label>
-                                <input
-                                    type="text"
+                                <BaseUrlInput
                                     value={llm.base_url}
-                                    onChange={(e) => setLLM({ ...llm, base_url: e.target.value })}
-                                    placeholder={LLM_PROVIDERS[llm.provider as keyof typeof LLM_PROVIDERS]?.base_url}
+                                    defaultValue={LLM_PROVIDERS[llm.provider as keyof typeof LLM_PROVIDERS]?.base_url || ''}
+                                    onChange={handleLLMUrlChange}
                                     className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
                                 />
                             </div>
@@ -592,11 +737,10 @@ export function APISettings() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Base URL</label>
-                                <input
-                                    type="text"
+                                <BaseUrlInput
                                     value={stt.base_url}
-                                    onChange={(e) => setSTT({ ...stt, base_url: e.target.value })}
-                                    placeholder={STT_PROVIDERS[stt.provider as keyof typeof STT_PROVIDERS]?.base_url}
+                                    defaultValue={STT_PROVIDERS[stt.provider as keyof typeof STT_PROVIDERS]?.base_url || ''}
+                                    onChange={handleSTTUrlChange}
                                     className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
                                 />
                             </div>

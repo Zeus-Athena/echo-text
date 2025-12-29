@@ -225,12 +225,15 @@ class SimulatedStreamingProcessor(BaseAudioProcessor):
                 logger.debug(f"Filtered hallucination: '{text}'")
                 return
 
-            # 发送事件
+            # 发送事件（生成唯一 ID 用于关联翻译）
+            import uuid
+
             event = TranscriptEvent(
                 text=text,
                 is_final=True,  # 伪流式只有 Final 结果
                 start_time=elapsed_time,
                 end_time=elapsed_time + speech_duration,
+                transcript_id=str(uuid.uuid4()),
             )
             await self._emit_transcript(event)
 

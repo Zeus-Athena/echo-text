@@ -128,6 +128,18 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
     const pendingTranslationRef = useRef<boolean>(false) // 是否有待等待的译文
     const timestampedChunksRef = useRef<TimestampedChunk[]>([])  // 保存每个 STT 事件的时间戳信息
 
+    // === 新增: transcript_id 关联机制 ===
+    // 存储待翻译的 transcript_id 列表（按顺序）
+    const pendingTranscriptIdsRef = useRef<string[]>([])
+    // 存储 transcript_id -> 转录文本的映射
+    const transcriptIdToTextRef = useRef<Map<string, string>>(new Map())
+    // 存储已完成的翻译 (按 transcript_id)
+    const completedTranslationsRef = useRef<Map<string, string>>(new Map())
+    // 当前 segment 包含的 transcript_ids
+    const currentSegmentTranscriptIdsRef = useRef<string[]>([])
+    // transcript_id -> segment 索引的映射（用于翻译到达时更新正确的 segment）
+    const transcriptIdToSegmentIndexRef = useRef<Map<string, number>>(new Map())
+
     // Keep stateRef in sync
     useEffect(() => {
         stateRef.current = state
@@ -136,10 +148,8 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
     // Check if we need to start a new segment
     // 软阈值开始找标点，硬上限强制切
     const checkAndSegment = useCallback(() => {
-        // 如果还有待等待的译文，不切分（避免译文错位）
-        if (pendingTranslationRef.current) {
-            return
-        }
+        // 注意：不再阻塞等待所有翻译完成，允许翻译延迟时也能切分
+        // transcript_id 关联机制已确保翻译能正确匹配到对应的转录
 
         const text = transcriptRef.current
         if (!text.trim()) return
@@ -212,47 +222,51 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
             timestampedChunksRef.current = remainingChunks
         }
 
-        // 软阈值：超过设定词数开始找标点切分
-        if (wordCount > segmentSoftThresholdRef.current) {
-            // 查找最后一个句末标点
-            const sentenceEnders = /[.!?。！？]/g
-            let lastMatch = null
-            let match
-            while ((match = sentenceEnders.exec(text)) !== null) {
-                lastMatch = match
+        // 混合方案：超过软阈值后，等文本结尾是句末标点时再切分
+        // 这样既保证不把一个 final 切开，又保证在句子边界切分
+        const endsWithPunctuation = /[.!?。！？]$/.test(text.trim())
+
+        if (wordCount > segmentSoftThresholdRef.current && endsWithPunctuation) {
+            const startTime = segmentStartTimeRef.current
+            const endTime = segmentEndTimeRef.current
+
+            // 保存当前 segment 的 transcriptIds
+            const segmentTranscriptIds = [...currentSegmentTranscriptIdsRef.current]
+
+            // 计算该 segment 已有的翻译（根据 transcript_id 收集）
+            const segmentTranslation = segmentTranscriptIds
+                .map(id => completedTranslationsRef.current.get(id) || '')
+                .filter(t => t)
+                .join(' ')
+
+            const newSegment = {
+                text: transcriptRef.current,
+                translation: segmentTranslation,
+                start: startTime,
+                end: endTime
             }
 
-            // 如果找到标点且在文本后半部分，在标点处切分
-            if (lastMatch && lastMatch.index > text.length * 0.5) {
-                const splitIndex = lastMatch.index + 1
-                const segmentText = text.slice(0, splitIndex).trim()
-                const remainingText = text.slice(splitIndex).trim()
-
-                // 使用 chunk 精确定位切分时间
-                const startTime = segmentStartTimeRef.current
-                const splitTime = findTimeAtPosition(splitIndex)
-
-                const newSegment = {
-                    text: segmentText,
-                    translation: translationRef.current,
-                    start: startTime,
-                    end: splitTime
-                }
-
-                // Reset for next segment
-                transcriptRef.current = remainingText
-                translationRef.current = ''
-                segmentStartTimeRef.current = splitTime
-                clearUsedChunks(splitIndex)
-
-                setState(prev => ({
+            // 记录 transcriptIds 属于哪个 segment（用于后续翻译到达时更新）
+            setState(prev => {
+                const newIndex = prev.segments.length
+                segmentTranscriptIds.forEach(id => {
+                    transcriptIdToSegmentIndexRef.current.set(id, newIndex)
+                })
+                return {
                     ...prev,
                     segments: [...prev.segments, newSegment],
-                    transcript: remainingText,
+                    transcript: '',
                     translation: ''
-                }))
-                return
-            }
+                }
+            })
+
+            // Reset for next segment
+            transcriptRef.current = ''
+            translationRef.current = ''
+            segmentStartTimeRef.current = endTime
+            currentSegmentTranscriptIdsRef.current = []
+            timestampedChunksRef.current = []  // 清空所有 chunks
+            return
         }
 
         // 硬上限：超过设定上限强制切分
@@ -260,25 +274,42 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
             const startTime = segmentStartTimeRef.current
             const endTime = segmentEndTimeRef.current
 
+            // 保存当前 segment 的 transcriptIds
+            const segmentTranscriptIds = [...currentSegmentTranscriptIdsRef.current]
+
+            // 计算该 segment 已有的翻译（根据 transcript_id 收集）
+            const segmentTranslation = segmentTranscriptIds
+                .map(id => completedTranslationsRef.current.get(id) || '')
+                .filter(t => t)
+                .join(' ')
+
             const newSegment = {
                 text: transcriptRef.current,
-                translation: translationRef.current,
+                translation: segmentTranslation,
                 start: startTime,
                 end: endTime
             }
+
+            // 记录 transcriptIds 属于哪个 segment
+            setState(prev => {
+                const newIndex = prev.segments.length
+                segmentTranscriptIds.forEach(id => {
+                    transcriptIdToSegmentIndexRef.current.set(id, newIndex)
+                })
+                return {
+                    ...prev,
+                    segments: [...prev.segments, newSegment],
+                    transcript: '',
+                    translation: ''
+                }
+            })
 
             // Reset for next segment
             transcriptRef.current = ''
             translationRef.current = ''
             segmentStartTimeRef.current = endTime
+            currentSegmentTranscriptIdsRef.current = []
             timestampedChunksRef.current = []  // 清空所有 chunks
-
-            setState(prev => ({
-                ...prev,
-                segments: [...prev.segments, newSegment],
-                transcript: '',
-                translation: ''
-            }))
         }
     }, [])
 
@@ -467,6 +498,16 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
                                 })
                             }
 
+                            // === transcript_id 关联机制 ===
+                            // 如果后端发送了 transcript_id，记录它
+                            if (data.transcript_id) {
+                                pendingTranscriptIdsRef.current.push(data.transcript_id)
+                                transcriptIdToTextRef.current.set(data.transcript_id, speakerPrefix + data.text)
+                                // 添加到当前 segment 的 ID 列表
+                                currentSegmentTranscriptIdsRef.current.push(data.transcript_id)
+                                console.log(`[STT] Transcript received: id=${data.transcript_id.slice(0, 8)}... (current segment has ${currentSegmentTranscriptIdsRef.current.length} IDs)`)
+                            }
+
                             // 标记等待译文，不立即切分
                             pendingTranslationRef.current = true
                             setState(prev => ({
@@ -474,7 +515,12 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
                                 transcript: transcriptRef.current,
                                 interimTranscript: '' // Clear interim on final
                             }))
-                            // 不在这里 checkAndSegment，等译文到达后再切分
+                            // 硬上限强制切分：即使译文未到达，也要切分防止卡片过长
+                            const wordCount = transcriptRef.current.split(/\s+/).length
+                            if (wordCount > segmentHardThresholdRef.current) {
+                                checkAndSegment()
+                            }
+                            // 软阈值等译文到达后再切分（在 translation 处理中）
                         } else {
                             // Interim result: update interim state (gray text)
                             setState(prev => ({ ...prev, interimTranscript: data.text }))
@@ -484,10 +530,47 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
                         }
                     } else if (data.type === 'translation') {
                         if (data.is_final) {
+                            // === transcript_id 关联机制 ===
+                            // 如果后端发送了 transcript_id，用它来关联
+                            if (data.transcript_id) {
+                                completedTranslationsRef.current.set(data.transcript_id, data.text)
+                                console.log(`[STT] Translation received: id=${data.transcript_id.slice(0, 8)}...`)
+
+                                // 从 pending 列表中移除已完成的 ID
+                                const idx = pendingTranscriptIdsRef.current.indexOf(data.transcript_id)
+                                if (idx !== -1) {
+                                    pendingTranscriptIdsRef.current.splice(idx, 1)
+                                }
+
+                                // 检查该 transcript_id 是否已经属于某个已切分的 segment
+                                const segmentIndex = transcriptIdToSegmentIndexRef.current.get(data.transcript_id)
+                                if (segmentIndex !== undefined) {
+                                    // 更新已切分的 segment 的翻译
+                                    setState(prev => {
+                                        const newSegments = [...prev.segments]
+                                        if (newSegments[segmentIndex]) {
+                                            // 追加翻译到对应的 segment
+                                            const existing = newSegments[segmentIndex].translation
+                                            newSegments[segmentIndex] = {
+                                                ...newSegments[segmentIndex],
+                                                translation: existing ? existing + ' ' + data.text : data.text
+                                            }
+                                            console.log(`[STT] Updated segment ${segmentIndex} with translation`)
+                                        }
+                                        return { ...prev, segments: newSegments }
+                                    })
+                                    // 翻译已用于已切分的 segment，不追加到当前 translationRef，直接返回
+                                    return
+                                }
+                            }
+
                             // Final translation: append to confirmed, clear interim
+                            // 只有属于当前未切分 segment 的翻译才追加到 translationRef
                             translationRef.current += (translationRef.current ? ' ' : '') + data.text
-                            // 译文到达，清除等待标记，检查是否需要切分
-                            pendingTranslationRef.current = false
+                            // 译文到达，检查是否还有待处理的翻译
+                            if (pendingTranscriptIdsRef.current.length === 0) {
+                                pendingTranslationRef.current = false
+                            }
                             setState(prev => ({
                                 ...prev,
                                 translation: translationRef.current,
@@ -571,6 +654,13 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
             segmentStartTimeRef.current = 0 // 初始化为 0 (因为后端返回的是相对时间)
             segmentEndTimeRef.current = 0
             timestampedChunksRef.current = []  // 清空时间戳 chunks
+
+            // 清空 transcript_id 关联状态
+            pendingTranscriptIdsRef.current = []
+            transcriptIdToTextRef.current.clear()
+            completedTranslationsRef.current.clear()
+            currentSegmentTranscriptIdsRef.current = []
+            transcriptIdToSegmentIndexRef.current.clear()
 
             setState(prev => ({
                 ...prev,
@@ -789,6 +879,13 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
         translationRef.current = ''
         shouldReconnectRef.current = false
         timestampedChunksRef.current = []  // 清空时间戳 chunks
+
+        // 清空 transcript_id 关联状态
+        pendingTranscriptIdsRef.current = []
+        transcriptIdToTextRef.current.clear()
+        completedTranslationsRef.current.clear()
+        currentSegmentTranscriptIdsRef.current = []
+        transcriptIdToSegmentIndexRef.current.clear()
 
         if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current)

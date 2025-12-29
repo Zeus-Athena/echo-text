@@ -1,9 +1,10 @@
 """
 Tests for websocket/translation_handler.py
-翻译处理器单元测试
+翻译处理器单元测试 - 适配新的时间间隔节流逻辑
 """
 
-from unittest.mock import AsyncMock, MagicMock
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -32,7 +33,7 @@ class TestTranslationHandler:
 
     @pytest.fixture
     def handler_throttle_mode(self, mock_llm_service):
-        """节流模式处理器 (buffer_duration=6)"""
+        """节流模式处理器 (buffer_duration=6, rpm_limit=20)"""
         from app.services.websocket.translation_handler import TranslationHandler
 
         return TranslationHandler(
@@ -40,6 +41,7 @@ class TestTranslationHandler:
             buffer_duration=6.0,
             source_lang="en",
             target_lang="zh",
+            rpm_limit=20,
         )
 
     # === 初始化测试 ===
@@ -54,24 +56,37 @@ class TestTranslationHandler:
             source_lang="ja",
             target_lang="en",
             translation_timeout=15.0,
+            rpm_limit=30,
         )
 
         assert handler.buffer_duration == 5.0
         assert handler.source_lang == "ja"
         assert handler.target_lang == "en"
         assert handler.translation_timeout == 15.0
-        assert handler._buffer == ""
-        assert handler._last_word_count == 0
+        assert handler.rpm_limit == 30
+        assert handler.min_interval == 2.0  # 60 / 30 = 2s
+
+    def test_init_default_rpm_limit(self, mock_llm_service):
+        """测试默认 RPM 限制"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler = TranslationHandler(
+            llm_service=mock_llm_service,
+            buffer_duration=5.0,
+        )
+
+        assert handler.rpm_limit == 20
+        assert handler.min_interval == 3.0  # 60 / 20 = 3s
 
     def test_reset_clears_state(self, handler_fast_mode):
         """测试 reset 清空状态"""
-        handler_fast_mode._buffer = "some text"
-        handler_fast_mode._last_word_count = 10
+        handler_fast_mode._last_request_time = 100.0
+        handler_fast_mode._last_context = "some context"
 
         handler_fast_mode.reset()
 
-        assert handler_fast_mode._buffer == ""
-        assert handler_fast_mode._last_word_count == 0
+        assert handler_fast_mode._last_request_time == 0.0
+        assert handler_fast_mode._last_context == ""
 
     # === 极速模式测试 ===
 
@@ -86,49 +101,24 @@ class TestTranslationHandler:
         mock_llm_service.translate.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_fast_mode_interim_first_5_words_translates(
+    async def test_fast_mode_interim_never_translates(
         self, handler_fast_mode, mock_llm_service
     ):
-        """极速模式：interim 首次达到 5 词触发翻译"""
-        # 4 词不触发
-        result = await handler_fast_mode.handle_transcript("one two three four", is_final=False)
-        assert result == []
-
-        # 5 词触发
+        """极速模式：interim 不触发翻译"""
         result = await handler_fast_mode.handle_transcript(
             "one two three four five", is_final=False
         )
-        assert result
-        assert result[0]["is_final"] is False
-
-    @pytest.mark.asyncio
-    async def test_fast_mode_interim_5_word_increment(self, handler_fast_mode, mock_llm_service):
-        """极速模式：interim 每增加 5 词触发一次翻译"""
-        # 第一次：5 词
-        await handler_fast_mode.handle_transcript("one two three four five", is_final=False)
-        assert handler_fast_mode._last_word_count == 5
-
-        # 9 词不触发 (需要 10)
-        result = await handler_fast_mode.handle_transcript(
-            "one two three four five six seven eight nine", is_final=False
-        )
         assert result == []
-
-        # 10 词触发
-        result = await handler_fast_mode.handle_transcript(
-            "one two three four five six seven eight nine ten", is_final=False
-        )
-        assert result
-        assert handler_fast_mode._last_word_count == 10
+        mock_llm_service.translate.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_fast_mode_final_resets_word_count(self, handler_fast_mode, mock_llm_service):
-        """极速模式：final 重置 word count"""
-        handler_fast_mode._last_word_count = 10
+    async def test_fast_mode_preserves_transcript_id(self, handler_fast_mode, mock_llm_service):
+        """极速模式：保留 transcript_id"""
+        result = await handler_fast_mode.handle_transcript(
+            "Hello", is_final=True, transcript_id="test-id-123"
+        )
 
-        await handler_fast_mode.handle_transcript("Final text.", is_final=True)
-
-        assert handler_fast_mode._last_word_count == 0
+        assert result[0]["transcript_id"] == "test-id-123"
 
     # === 节流模式测试 ===
 
@@ -145,76 +135,82 @@ class TestTranslationHandler:
         mock_llm_service.translate.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_throttle_mode_accumulates_final(self, handler_throttle_mode):
-        """节流模式：累积 final 文本"""
-        await handler_throttle_mode.handle_transcript("Hello", is_final=True)
-        await handler_throttle_mode.handle_transcript("world", is_final=True)
-
-        assert "Hello" in handler_throttle_mode._buffer
-        assert "world" in handler_throttle_mode._buffer
-
-    @pytest.mark.asyncio
-    async def test_throttle_mode_flushes_on_punctuation(
+    async def test_throttle_mode_translates_each_final_separately(
         self, handler_throttle_mode, mock_llm_service
     ):
-        """节流模式：句末标点触发翻译"""
+        """节流模式：每个 final 单独翻译，保留各自的 transcript_id"""
+        # 第一次翻译（无需等待，因为是首次）
+        result1 = await handler_throttle_mode.handle_transcript(
+            "Hello", is_final=True, transcript_id="id-1"
+        )
+        assert result1
+        assert result1[0]["transcript_id"] == "id-1"
+
+        # 第二次翻译（需要等待间隔）
+        # 模拟时间已过足够间隔
+        handler_throttle_mode._last_request_time = time.time() - 10
+
+        result2 = await handler_throttle_mode.handle_transcript(
+            "World", is_final=True, transcript_id="id-2"
+        )
+        assert result2
+        assert result2[0]["transcript_id"] == "id-2"
+
+        # 验证两次独立调用
+        assert mock_llm_service.translate.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_throttle_mode_respects_min_interval(
+        self, handler_throttle_mode, mock_llm_service
+    ):
+        """节流模式：遵守最小时间间隔"""
+        # 设置一个很短的间隔用于测试
+        handler_throttle_mode.rpm_limit = 60
+        handler_throttle_mode.min_interval = 1.0
+
+        start_time = time.time()
+
+        # 第一次翻译
         await handler_throttle_mode.handle_transcript("Hello", is_final=True)
-        result = await handler_throttle_mode.handle_transcript("world.", is_final=True)
 
-        assert result
-        assert handler_throttle_mode._buffer == ""
-        mock_llm_service.translate.assert_called_once()
+        # 第二次翻译（应该等待约 1 秒）
+        await handler_throttle_mode.handle_transcript("World", is_final=True)
 
-    @pytest.mark.asyncio
-    async def test_throttle_mode_flushes_on_30_words(self, handler_throttle_mode, mock_llm_service):
-        """节流模式：30 词上限触发翻译"""
-        # 累积 29 词
-        words_29 = " ".join([f"word{i}" for i in range(29)])
-        await handler_throttle_mode.handle_transcript(words_29, is_final=True)
+        elapsed = time.time() - start_time
 
-        # 第 30 词触发
-        result = await handler_throttle_mode.handle_transcript("word30", is_final=True)
-
-        assert result
-        mock_llm_service.translate.assert_called_once()
+        # 两次翻译之间应该至少有 1 秒间隔
+        assert elapsed >= 1.0
 
     @pytest.mark.asyncio
-    async def test_throttle_mode_various_punctuation(self, handler_throttle_mode, mock_llm_service):
-        """节流模式：各种标点都能触发"""
-        punctuations = [".", "!", "?", "。", "！", "？"]
+    async def test_throttle_mode_no_wait_on_first_request(
+        self, handler_throttle_mode, mock_llm_service
+    ):
+        """节流模式：首次请求无需等待"""
+        handler_throttle_mode._last_request_time = 0.0
 
-        for _, punct in enumerate(punctuations):
-            handler_throttle_mode._buffer = ""
-            result = await handler_throttle_mode.handle_transcript(f"Text{punct}", is_final=True)
-            assert result, f"Punctuation {punct} should trigger translation"
+        start_time = time.time()
+        await handler_throttle_mode.handle_transcript("Hello", is_final=True)
+        elapsed = time.time() - start_time
+
+        # 首次请求应该立即执行（不超过 0.5 秒）
+        assert elapsed < 0.5
+
+    @pytest.mark.asyncio
+    async def test_throttle_mode_updates_last_request_time(
+        self, handler_throttle_mode, mock_llm_service
+    ):
+        """节流模式：更新最后请求时间"""
+        handler_throttle_mode._last_request_time = 0.0
+
+        await handler_throttle_mode.handle_transcript("Hello", is_final=True)
+
+        assert handler_throttle_mode._last_request_time > 0
 
     # === flush 测试 ===
 
     @pytest.mark.asyncio
-    async def test_flush_translates_remaining_buffer(self, handler_throttle_mode, mock_llm_service):
-        """flush 翻译剩余缓冲区"""
-        handler_throttle_mode._buffer = "remaining text"
-
-        result = await handler_throttle_mode.flush()
-
-        assert result
-        assert result[0]["text"] == "翻译结果"
-        assert handler_throttle_mode._buffer == ""
-
-    @pytest.mark.asyncio
-    async def test_flush_empty_buffer_returns_none(self, handler_throttle_mode):
-        """flush 空缓冲区返回 None"""
-        handler_throttle_mode._buffer = ""
-
-        result = await handler_throttle_mode.flush()
-
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_flush_whitespace_only_returns_none(self, handler_throttle_mode):
-        """flush 仅空白缓冲区返回 None"""
-        handler_throttle_mode._buffer = "   "
-
+    async def test_flush_returns_empty_list(self, handler_throttle_mode):
+        """新逻辑下 flush 返回空列表（每个 ID 已单独处理）"""
         result = await handler_throttle_mode.flush()
 
         assert result == []
@@ -223,7 +219,7 @@ class TestTranslationHandler:
 
     @pytest.mark.asyncio
     async def test_translation_timeout_returns_none(self, handler_fast_mode, mock_llm_service):
-        """翻译超时返回 None"""
+        """翻译超时返回空列表"""
         import asyncio
 
         async def slow_translate(*args, **kwargs):
@@ -239,7 +235,7 @@ class TestTranslationHandler:
 
     @pytest.mark.asyncio
     async def test_translation_error_returns_none(self, handler_fast_mode, mock_llm_service):
-        """翻译异常返回 None"""
+        """翻译异常返回空列表"""
         mock_llm_service.translate = AsyncMock(side_effect=Exception("API Error"))
 
         result = await handler_fast_mode.handle_transcript("Hello", is_final=True)
@@ -248,14 +244,14 @@ class TestTranslationHandler:
 
     @pytest.mark.asyncio
     async def test_empty_text_returns_none(self, handler_fast_mode):
-        """空文本返回 None"""
+        """空文本返回空列表"""
         result = await handler_fast_mode.handle_transcript("", is_final=True)
 
         assert result == []
 
     @pytest.mark.asyncio
     async def test_whitespace_text_returns_none(self, handler_fast_mode):
-        """纯空白文本返回 None"""
+        """纯空白文本返回空列表"""
         result = await handler_fast_mode.handle_transcript("   ", is_final=True)
 
         assert result == []
@@ -282,3 +278,117 @@ class TestTranslationHandler:
             target_lang="zh",
             context="Previous context",
         )
+
+
+class TestThrottleModeRPMControl:
+    """节流模式 RPM 控制专项测试"""
+
+    @pytest.fixture
+    def mock_llm_service(self):
+        service = MagicMock()
+        service.translate = AsyncMock(return_value="翻译结果")
+        return service
+
+    @pytest.mark.asyncio
+    async def test_rpm_20_means_3s_interval(self, mock_llm_service):
+        """RPM=20 对应 3 秒间隔"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler = TranslationHandler(
+            llm_service=mock_llm_service,
+            buffer_duration=1.0,
+            rpm_limit=20,
+        )
+
+        assert handler.min_interval == 3.0
+
+    @pytest.mark.asyncio
+    async def test_rpm_30_means_2s_interval(self, mock_llm_service):
+        """RPM=30 对应 2 秒间隔"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler = TranslationHandler(
+            llm_service=mock_llm_service,
+            buffer_duration=1.0,
+            rpm_limit=30,
+        )
+
+        assert handler.min_interval == 2.0
+
+    @pytest.mark.asyncio
+    async def test_rpm_60_means_1s_interval(self, mock_llm_service):
+        """RPM=60 对应 1 秒间隔"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler = TranslationHandler(
+            llm_service=mock_llm_service,
+            buffer_duration=1.0,
+            rpm_limit=60,
+        )
+
+        assert handler.min_interval == 1.0
+
+
+class TestSingleIDTranslation:
+    """单 ID 翻译测试 - 验证错位问题已修复"""
+
+    @pytest.fixture
+    def mock_llm_service(self):
+        service = MagicMock()
+        service.translate = AsyncMock(return_value="翻译结果")
+        return service
+
+    @pytest.mark.asyncio
+    async def test_each_transcript_gets_correct_id(self, mock_llm_service):
+        """每个转录获得正确的 transcript_id"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler = TranslationHandler(
+            llm_service=mock_llm_service,
+            buffer_duration=1.0,
+            rpm_limit=600,  # 高 RPM 减少测试等待
+        )
+
+        results = []
+
+        for i in range(3):
+            result = await handler.handle_transcript(
+                f"Sentence {i}",
+                is_final=True,
+                transcript_id=f"id-{i}",
+            )
+            if result:
+                results.extend(result)
+
+        # 每个结果应该有对应的 ID
+        assert len(results) == 3
+        assert results[0]["transcript_id"] == "id-0"
+        assert results[1]["transcript_id"] == "id-1"
+        assert results[2]["transcript_id"] == "id-2"
+
+    @pytest.mark.asyncio
+    async def test_no_id_mixing(self, mock_llm_service):
+        """验证不会发生 ID 混淆"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler = TranslationHandler(
+            llm_service=mock_llm_service,
+            buffer_duration=1.0,
+            rpm_limit=600,
+        )
+
+        # 发送多个不同 ID 的转录
+        ids_sent = ["uuid-aaa", "uuid-bbb", "uuid-ccc"]
+        ids_received = []
+
+        for tid in ids_sent:
+            result = await handler.handle_transcript(
+                "Some text",
+                is_final=True,
+                transcript_id=tid,
+            )
+            if result:
+                ids_received.append(result[0]["transcript_id"])
+
+        # 接收到的 ID 应该与发送的完全一致
+        assert ids_received == ids_sent

@@ -1,12 +1,12 @@
 """
 Translation Handler
-翻译策略处理器 - 支持极速模式和节流模式
+翻译策略处理器 - 支持极速模式和节流模式（基于时间间隔的 RPM 控制）
 """
 
 from __future__ import annotations
 
 import asyncio
-import re
+import time
 
 from loguru import logger
 
@@ -14,7 +14,18 @@ from app.services.llm_service import LLMService
 
 
 class TranslationHandler:
-    """翻译处理器，根据 buffer_duration 选择策略"""
+    """翻译处理器，根据 buffer_duration 选择策略
+
+    极速模式 (buffer_duration=0):
+        每个 is_final 立即翻译，适用于伪流式（Groq/OpenAI）
+
+    节流模式 (buffer_duration>0):
+        使用时间间隔控制发送频率，保证 RPM 不超限
+        每个 transcript_id 单独翻译，彻底解决错位问题
+    """
+
+    # 默认 RPM 限制（每分钟最大请求次数）
+    DEFAULT_RPM_LIMIT = 20
 
     def __init__(
         self,
@@ -22,7 +33,8 @@ class TranslationHandler:
         buffer_duration: float,
         source_lang: str = "en",
         target_lang: str = "zh",
-        translation_timeout: float = 30.0,
+        translation_timeout: float = 15.0,
+        rpm_limit: int = DEFAULT_RPM_LIMIT,
     ):
         self.llm_service = llm_service
         self.buffer_duration = buffer_duration
@@ -30,130 +42,81 @@ class TranslationHandler:
         self.target_lang = target_lang
         self.translation_timeout = translation_timeout
 
-        # 状态
-        self._buffer: str = ""
-        self._last_word_count: int = 0
+        # RPM 控制
+        self.rpm_limit = rpm_limit
+        self.min_interval = 60.0 / rpm_limit  # 最小间隔（秒）
+        self._last_request_time: float = 0.0
+
+        # 上下文（用于翻译连贯性）
         self._last_context: str = ""
 
     def reset(self):
         """重置状态"""
-        self._buffer = ""
-        self._last_word_count = 0
+        self._last_request_time = 0.0
+        self._last_context = ""
 
     async def handle_transcript(
         self,
         text: str,
         is_final: bool,
+        transcript_id: str = "",
     ) -> list[dict]:
         """
         处理转录结果，根据策略决定是否翻译
 
         返回:
-            list[dict]: 翻译结果列表 [{"text": "...", "is_final": bool}, ...]
+            list[dict]: 翻译结果列表 [{"text": "...", "is_final": bool, "transcript_id": str}, ...]
         """
         if self.buffer_duration == 0:
-            return await self._fast_mode(text, is_final)
+            return await self._fast_mode(text, is_final, transcript_id)
         else:
-            return await self._throttle_mode(text, is_final)
+            return await self._throttle_mode(text, is_final, transcript_id)
 
-    async def flush(self) -> list[dict]:
+    async def flush(self, transcript_id: str = "") -> list[dict]:
         """
-        强制翻译剩余缓冲区（用于停止录制时）
+        强制翻译（用于停止录制时）
+        节流模式下每个 ID 已单独处理，无需额外 flush
         """
-        if self._buffer.strip():
-            # 同样应用拆分逻辑
-            results = await self._translate_sequentially(self._buffer, is_final=True)
-            self._buffer = ""
-            return results
+        # 新逻辑下不再有积压的 buffer，直接返回空
         return []
 
-    def _split_text(self, text: str) -> list[str]:
-        """根据标点符号拆分文本，保留标点"""
-        # 匹配中英文句末标点
-        parts = re.split(r"([.!?。！？]+)", text)
-        sentences = []
-
-        # 重新组合句子和标点: "Hello" + "." -> "Hello."
-        # parts list like: ['Hello', '.', 'World', '!', '']
-        for i in range(0, len(parts) - 1, 2):
-            sentence = parts[i] + parts[i + 1]
-            if sentence.strip():
-                sentences.append(sentence.strip())
-
-        # 处理可能的剩余部分 (无标点结尾)
-        if len(parts) % 2 != 0:
-            tail = parts[-1]
-            if tail.strip():
-                sentences.append(tail.strip())
-
-        return sentences
-
-    async def _translate_sequentially(self, text: str, is_final: bool) -> list[dict]:
-        """拆分文本并串行翻译"""
-        sentences = self._split_text(text)
-        results = []
-
-        for sentence in sentences:
-            if not sentence.strip():
-                continue
-
-            # 串行等待翻译完成
-            res = await self._translate(sentence, is_final=is_final)
-            if res:
-                results.append(res)
-
-        return results
-
-    async def _fast_mode(self, text: str, is_final: bool) -> list[dict]:
+    async def _fast_mode(self, text: str, is_final: bool, transcript_id: str = "") -> list[dict]:
         """
-        极速模式：翻译 interim + final
-        """
-        if is_final:
-            self._last_word_count = 0
-            # 使用串行切分逻辑处理 Final
-            return await self._translate_sequentially(text, is_final=True)
-
-        # interim: 检查词数增量
-        current = len(text.split())
-        if current >= self._last_word_count + 5:
-            self._last_word_count = current
-            # Interim 不拆分，直接发 (保持快速)
-            res = await self._translate(text, is_final=False)
-            return [res] if res else []
-
-        return []
-
-    async def _throttle_mode(self, text: str, is_final: bool) -> list[dict]:
-        """
-        节流模式：只翻译 final，累积到句末标点/30词再发送
+        极速模式：只翻译 Final（不翻译 interim）
+        一个 final 对应一次翻译调用，适用于伪流式
         """
         if not is_final:
             return []
 
-        self._buffer += (" " if self._buffer else "") + text
+        res = await self._translate(text, is_final=True, transcript_id=transcript_id)
+        return [res] if res else []
 
-        if self._should_flush():
-            # 使用串行拆分逻辑
-            results = await self._translate_sequentially(self._buffer, is_final=True)
-            self._buffer = ""
-            return results
+    async def _throttle_mode(self, text: str, is_final: bool, transcript_id: str = "") -> list[dict]:
+        """
+        节流模式（基于时间间隔控制 RPM）：
+        - 每个 is_final 单独翻译（解决错位问题）
+        - 通过等待时间间隔来控制 RPM 不超限
+        """
+        if not is_final:
+            return []
 
-        return []
+        # 计算需要等待的时间
+        now = time.time()
+        elapsed = now - self._last_request_time
+        wait_time = self.min_interval - elapsed
 
-    def _should_flush(self) -> bool:
-        """检查是否应该翻译缓冲区"""
-        text = self._buffer.strip()
-        if not text:
-            return False
+        if wait_time > 0:
+            logger.debug(f"Throttling: waiting {wait_time:.2f}s before translation")
+            await asyncio.sleep(wait_time)
 
-        # 句末标点
-        if text[-1] in ".!?。！？":
-            return True
+        # 更新最后请求时间
+        self._last_request_time = time.time()
 
-        # 30 词上限
-        return len(text.split()) >= 30
+        # 单独翻译这个 transcript_id
+        res = await self._translate(text, is_final=True, transcript_id=transcript_id)
+        return [res] if res else []
 
-    async def _translate(self, text: str, is_final: bool) -> dict | None:
+    async def _translate(self, text: str, is_final: bool, transcript_id: str = "") -> dict | None:
         """执行翻译"""
         if not text.strip():
             return None
@@ -172,7 +135,7 @@ class TranslationHandler:
             if is_final:
                 self._last_context = text
 
-            return {"text": translated, "is_final": is_final}
+            return {"text": translated, "is_final": is_final, "transcript_id": transcript_id}
 
         except TimeoutError:
             logger.warning(f"Translation timeout for: {text[:50]}...")

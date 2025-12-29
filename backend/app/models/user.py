@@ -65,6 +65,11 @@ class UserConfig(Base):
     # LLM Provider-specific API Keys (新增)
     llm_groq_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     llm_siliconflow_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_siliconflowglobal_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    llm_fireworks_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # LLM Provider-specific URLs (JSON: {"groq": "...", "siliconflow": "..."})
+    llm_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # STT Configuration
     stt_provider: Mapped[str | None] = mapped_column(String(100))
@@ -78,11 +83,17 @@ class UserConfig(Base):
     stt_openai_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     stt_siliconflow_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # STT Provider-specific URLs (JSON: {"groq": "...", "deepgram": "..."})
+    stt_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # TTS Configuration
     tts_provider: Mapped[str] = mapped_column(String(100), default="edge")
     tts_api_key: Mapped[str | None] = mapped_column(Text)
     tts_base_url: Mapped[str | None] = mapped_column(String(500))
     tts_voice: Mapped[str] = mapped_column(String(200), default="zh-CN-XiaoxiaoNeural")
+
+    # TTS Provider-specific URLs (JSON: {"edge": null, "openai": "..."})
+    tts_urls: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Dictionary Configuration
     dict_provider: Mapped[str] = mapped_column(String(100), default="llm")

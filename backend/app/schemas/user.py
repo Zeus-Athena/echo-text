@@ -101,6 +101,7 @@ class LLMConfig(BaseModel):
     base_url: str | None = None
     model: str | None = None
     keys: dict[str, str | None] | None = None
+    urls: dict[str, str | None] | None = None  # Provider-specific URLs
 
 
 class STTConfig(BaseModel):
@@ -111,6 +112,7 @@ class STTConfig(BaseModel):
     base_url: str | None = None
     model: str | None = None
     keys: dict[str, str | None] | None = None
+    urls: dict[str, str | None] | None = None  # Provider-specific URLs
 
 
 class TTSConfig(BaseModel):
@@ -120,6 +122,7 @@ class TTSConfig(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     voice: str = "zh-CN-XiaoxiaoNeural"
+    urls: dict[str, str | None] | None = None  # Provider-specific URLs
 
 
 class DictConfig(BaseModel):

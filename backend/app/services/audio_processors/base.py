@@ -25,6 +25,7 @@ class TranscriptEvent:
     start_time: float = 0.0
     end_time: float = 0.0
     confidence: float = 1.0
+    transcript_id: str = ""  # 用于关联翻译结果
 
 
 @dataclass

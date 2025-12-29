@@ -57,6 +57,7 @@ class ConnectionManager:
         speaker: str | None = None,
         start_time: float | None = None,
         end_time: float | None = None,
+        transcript_id: str = "",
     ) -> bool:
         """发送转录结果"""
         data = {
@@ -70,6 +71,8 @@ class ConnectionManager:
             data["start_time"] = start_time
         if end_time is not None:
             data["end_time"] = end_time
+        if transcript_id:
+            data["transcript_id"] = transcript_id
         return await self.send_json(client_id, data)
 
     async def send_translation(
@@ -77,16 +80,17 @@ class ConnectionManager:
         client_id: str,
         text: str,
         is_final: bool,
+        transcript_id: str = "",
     ) -> bool:
         """发送翻译结果"""
-        return await self.send_json(
-            client_id,
-            {
-                "type": "translation",
-                "text": text,
-                "is_final": is_final,
-            },
-        )
+        data = {
+            "type": "translation",
+            "text": text,
+            "is_final": is_final,
+        }
+        if transcript_id:
+            data["transcript_id"] = transcript_id
+        return await self.send_json(client_id, data)
 
     async def send_status(self, client_id: str, message: str) -> bool:
         """发送状态消息"""
