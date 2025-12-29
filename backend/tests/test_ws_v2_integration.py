@@ -195,9 +195,9 @@ def test_websocket_non_blocking_translation(client, mock_token, mock_deps):
             print(f"Ping took {elapsed:.4f}s during translation")
 
             # Assert it was fast (much faster than the delay)
-            assert elapsed < (SLOW_DELAY / 2), (
-                f"Pong took {elapsed}s, which is too slow (Translation delay is {SLOW_DELAY}s). Main loop blocked!"
-            )
+            assert (
+                elapsed < (SLOW_DELAY / 2)
+            ), f"Pong took {elapsed}s, which is too slow (Translation delay is {SLOW_DELAY}s). Main loop blocked!"
 
             # 7. Eventually we should get the translation
             # Note: TestClient context might close/cancel background tasks when exiting block?
