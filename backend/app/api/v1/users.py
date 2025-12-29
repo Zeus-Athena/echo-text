@@ -27,6 +27,8 @@ from app.schemas.user import (
     UserUpdate,
 )
 
+
+# trigger ci
 router = APIRouter(prefix="/users", tags=["Users"])
 
 
