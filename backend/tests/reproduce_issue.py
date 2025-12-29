@@ -29,9 +29,7 @@ async def test_llm_config_key_resolution():
     mock_db = AsyncMock()
 
     # Mock get_effective_config to return our mock_config
-    with patch(
-        "app.api.v1.config.get_effective_config", new=AsyncMock(return_value=mock_config)
-    ) as mock_get_config:
+    with patch("app.api.v1.config.get_effective_config", new=AsyncMock(return_value=mock_config)):
         # Mock openai.AsyncOpenAI directly since it is imported inside the function
         with patch("openai.AsyncOpenAI") as MockAsyncOpenAI:
             # Setup the Mock Client instance
@@ -54,9 +52,9 @@ async def test_llm_config_key_resolution():
             # Verify correct key was used
             # We look at the call args of AsyncOpenAI constructor
             args, kwargs = MockAsyncOpenAI.call_args
-            assert kwargs.get("api_key") == "siliconflow_global_key", (
-                f"Expected 'siliconflow_global_key' for SiliconFlow Global, but got '{kwargs.get('api_key')}'"
-            )
+            assert (
+                kwargs.get("api_key") == "siliconflow_global_key"
+            ), f"Expected 'siliconflow_global_key' for SiliconFlow Global, but got '{kwargs.get('api_key')}'"
 
             print("\n✅ SiliconFlow Global key resolution verified.")
 
@@ -71,9 +69,9 @@ async def test_llm_config_key_resolution():
             await test_llm_config(request_fireworks, current_user=mock_user, db=mock_db)
 
             args, kwargs = MockAsyncOpenAI.call_args
-            assert kwargs.get("api_key") == "fireworks_key", (
-                f"Expected 'fireworks_key' for Fireworks, but got '{kwargs.get('api_key')}'"
-            )
+            assert (
+                kwargs.get("api_key") == "fireworks_key"
+            ), f"Expected 'fireworks_key' for Fireworks, but got '{kwargs.get('api_key')}'"
 
             print("✅ Fireworks key resolution verified.")
 
@@ -88,9 +86,9 @@ async def test_llm_config_key_resolution():
             await test_llm_config(request_sf_cn, current_user=mock_user, db=mock_db)
 
             args, kwargs = MockAsyncOpenAI.call_args
-            assert kwargs.get("api_key") == "siliconflow_cn_key", (
-                f"Expected 'siliconflow_cn_key' for SiliconFlow (CN), but got '{kwargs.get('api_key')}'"
-            )
+            assert (
+                kwargs.get("api_key") == "siliconflow_cn_key"
+            ), f"Expected 'siliconflow_cn_key' for SiliconFlow (CN), but got '{kwargs.get('api_key')}'"
 
             print("✅ SiliconFlow (CN) key resolution verified.")
 
