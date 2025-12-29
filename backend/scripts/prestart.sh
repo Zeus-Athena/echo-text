@@ -1,12 +1,15 @@
 #!/bin/bash
 
+# Let the DB start
+python3 /app/app/backend_pre_start.py
+
 # Run database migrations (auto-apply schema changes)
 echo "Running database migrations..."
-cd /app && alembic upgrade head || echo "Warning: alembic migration failed, but continuing..."
+cd /app && alembic upgrade head
 
-# Run the initialization script (don't fail if it doesn't work)
+# Run the initialization script
 echo "Running database initialization..."
-cd /app && PYTHONPATH=/app python3 scripts/init_admin.py || echo "Warning: init_admin.py failed, but continuing..."
+cd /app && PYTHONPATH=/app python3 scripts/init_admin.py
 
 # Start the application
 echo "Starting application..."
