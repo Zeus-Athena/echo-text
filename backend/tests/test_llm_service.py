@@ -181,7 +181,7 @@ async def test_translate_stream_prompt_contains_no_skip_rules():
     # Mock stream response
     mock_chunk = MagicMock()
     mock_chunk.choices = [MagicMock(delta=MagicMock(content="Chunk"))]
-    
+
     # Create an async iterator for the stream
     async def async_stream():
         yield mock_chunk

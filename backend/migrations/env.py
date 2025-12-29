@@ -2,6 +2,7 @@
 Alembic Environment Configuration
 配置 Alembic 使用异步 SQLAlchemy 和项目的 Base metadata
 """
+
 import asyncio
 from logging.config import fileConfig
 

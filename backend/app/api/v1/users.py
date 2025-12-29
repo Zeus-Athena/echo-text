@@ -271,6 +271,7 @@ async def update_user_config(
         # Update LLM provider-specific URLs
         if config_data.llm.urls is not None:
             import json
+
             # Merge with existing URLs
             existing_urls = {}
             if config.llm_urls:
@@ -337,6 +338,7 @@ async def update_user_config(
         # Update STT provider-specific URLs
         if config_data.stt.urls is not None:
             import json
+
             existing_urls = {}
             if config.stt_urls:
                 try:
@@ -359,6 +361,7 @@ async def update_user_config(
         # Update TTS provider-specific URLs
         if config_data.tts.urls is not None:
             import json
+
             existing_urls = {}
             if config.tts_urls:
                 try:

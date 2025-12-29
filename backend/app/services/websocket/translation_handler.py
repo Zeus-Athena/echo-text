@@ -91,7 +91,9 @@ class TranslationHandler:
         res = await self._translate(text, is_final=True, transcript_id=transcript_id)
         return [res] if res else []
 
-    async def _throttle_mode(self, text: str, is_final: bool, transcript_id: str = "") -> list[dict]:
+    async def _throttle_mode(
+        self, text: str, is_final: bool, transcript_id: str = ""
+    ) -> list[dict]:
         """
         节流模式（基于时间间隔控制 RPM）：
         - 每个 is_final 单独翻译（解决错位问题）

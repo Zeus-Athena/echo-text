@@ -4,7 +4,7 @@ Tests for websocket/translation_handler.py
 """
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -101,9 +101,7 @@ class TestTranslationHandler:
         mock_llm_service.translate.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_fast_mode_interim_never_translates(
-        self, handler_fast_mode, mock_llm_service
-    ):
+    async def test_fast_mode_interim_never_translates(self, handler_fast_mode, mock_llm_service):
         """极速模式：interim 不触发翻译"""
         result = await handler_fast_mode.handle_transcript(
             "one two three four five", is_final=False
