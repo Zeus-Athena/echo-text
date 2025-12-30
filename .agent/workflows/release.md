@@ -26,13 +26,18 @@ description: 标准发布流程 (Develop改版本 -> 合并Main -> 打标签 -> 
     ```
 
 ## 2. 代码验证 (Verification)
-- [ ] **运行测试**:
+- [ ] **Backend 测试**:
     ```bash
     cd backend
     # 使用虚拟环境运行 (确保依赖环境正确)
     ./venv/bin/python -m ruff check .
     ./venv/bin/python -m ruff format --check .
     PYTHONPATH=. ./venv/bin/python -m pytest
+    ```
+- [ ] **Frontend Lint**:
+    ```bash
+    cd frontend
+    npm run lint
     ```
 - [ ] **修复问题 (If Failed)**:
     - 如果上述命令报错，**必须**先修复代码或测试。

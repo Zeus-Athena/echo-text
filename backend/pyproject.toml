@@ -1,6 +1,6 @@
 [project]
 name = "echotext-backend"
-version = "1.1.2"
+version = "1.1.1"
 description = "EchoText Backend - Real-time transcription and translation system"
 requires-python = ">=3.11"
 
