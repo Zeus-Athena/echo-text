@@ -94,6 +94,9 @@ def mock_deps():
         mock_config = MagicMock()
         mock_config.audio_buffer_duration = 6.0
         mock_config.silence_threshold = 30
+        mock_config.segment_soft_threshold = 30
+        mock_config.segment_hard_threshold = 60
+        mock_config.translation_mode = 100  # RPM
         mock_config.stt_deepgram_api_key = "test_key"
 
         # Flexible side effect to return User then Config
@@ -132,27 +135,29 @@ def test_websocket_non_blocking_translation(client, mock_token, mock_deps):
     with (
         patch("app.api.v1.ws_v2.ProcessorFactory.create") as mock_factory,
         patch("app.api.v1.ws_v2.TranslationHandler") as MockTranslationHandler,
+        patch("app.api.v1.ws_v2.is_true_streaming") as mock_is_true_streaming,
     ):
         # 1. Setup Mock Processor
-        # We need to capture the 'on_transcript' callback passed to create()
-        # So we return a MockAudioProcessor which calls it.
         def create_processor(config, stt_service, on_transcript, on_error):
             return MockAudioProcessor(config, on_transcript, on_error)
 
         mock_factory.side_effect = create_processor
 
-        # 2. Setup Slow Mock Translator
+        # 2. Force legacy flow (simpler to test) by returning False for is_true_streaming
+        mock_is_true_streaming.return_value = False
+
+        # 3. Setup Slow Mock Translator (Legacy mode uses handle_transcript)
         mock_translator_instance = MockTranslationHandler.return_value
 
-        async def slow_translate(text, is_final):
+        async def slow_translate(text, is_final, transcript_id=""):
             # Simulate heavy lifting / network lag
             await asyncio.sleep(SLOW_DELAY)
-            return {"text": f"Translated: {text}", "is_final": is_final}
+            return [{"text": f"Translated: {text}", "is_final": is_final, "transcript_id": transcript_id}]
 
         mock_translator_instance.handle_transcript = AsyncMock(side_effect=slow_translate)
-        mock_translator_instance.flush = AsyncMock(return_value=None)
+        mock_translator_instance.flush = AsyncMock(return_value=[])
 
-        # 3. Connect Client
+        # 4. Connect Client
         with client.websocket_connect(f"/api/v1/ws/transcribe/v2/{mock_token}") as ws:
             # Start Recording
             ws.send_json(
@@ -166,26 +171,20 @@ def test_websocket_non_blocking_translation(client, mock_token, mock_deps):
             resp = ws.receive_json()
             assert resp["type"] == "status", f"Unexpected response: {resp}"
 
-            # 4. Trigger the Slow Operation
+            # 5. Trigger the Slow Operation
             # Send audio bytes that trigger a 'transcript' mock event
             ws.send_bytes(b"event:Hello World")
 
             # Expect immediate Transcript response (echo)
-            # This confirms the server processed the audio and called on_transcript
             resp1 = ws.receive_json()
             assert resp1["type"] == "transcript"
             assert resp1["text"] == "Hello World"
 
-            # At this point, 'translation_worker' should have picked up the task
-            # and started 'await slow_translate()'.
-
-            # 5. Send Ping IMMEDIATELY
+            # 6. Send Ping IMMEDIATELY
             t0 = time.time()
             ws.send_json({"action": "ping"})
 
-            # 6. Expect Pong Response
-            # If the main loop is BLOCKED by translation, receive_json() will timeout or take > SLOW_DELAY
-            # We want it to be fast.
+            # 7. Expect Pong Response quickly
             resp2 = ws.receive_json()
             t1 = time.time()
 
@@ -199,10 +198,5 @@ def test_websocket_non_blocking_translation(client, mock_token, mock_deps):
                 elapsed < (SLOW_DELAY / 2)
             ), f"Pong took {elapsed}s, which is too slow (Translation delay is {SLOW_DELAY}s). Main loop blocked!"
 
-            # 7. Eventually we should get the translation
-            # Note: TestClient context might close/cancel background tasks when exiting block?
-            # We can wait for it if we want to be sure it arrives.
-            # But the primary goal is proving responsiveness.
-
-            # Let's clean up
+            # 8. Clean up
             ws.send_json({"action": "stop"})
