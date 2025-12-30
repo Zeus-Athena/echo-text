@@ -566,6 +566,24 @@ async def websocket_transcribe_v2(websocket: WebSocket, token: str):
                                 for s in sentence_builder.flush():
                                     await translate_and_send(s)
 
+                                # 等待所有后台翻译任务完成（确保保存到数据库）
+                                if background_tasks:
+                                    logger.info(
+                                        f"Stop: Waiting for {len(background_tasks)} pending translations..."
+                                    )
+                                    try:
+                                        await asyncio.wait_for(
+                                            asyncio.gather(
+                                                *background_tasks, return_exceptions=True
+                                            ),
+                                            timeout=30.0,
+                                        )
+                                        logger.info("Stop: All translations saved.")
+                                    except TimeoutError:
+                                        logger.warning(
+                                            "Stop: Timeout waiting for translations, some may be lost."
+                                        )
+
                                 # Force close supervisor
                                 events = segment_supervisor.force_close()
                                 for seg_evt in events:
