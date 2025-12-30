@@ -1,59 +1,206 @@
 """
-Translation Handler
-翻译策略处理器 - 支持极速模式和节流模式（基于时间间隔的 RPM 控制）
+Translation Handler V2
+翻译处理器 - 重构版（按完整句子翻译）
+
+核心变化：
+1. 接收 SentenceBuilder 输出的完整句子
+2. 翻译结果带 segment_id + sentence_index 保证顺序
+3. RPM 控制升级为令牌桶算法 (Token Bucket)，支持突发
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
+from typing import Optional, Callable, Awaitable
 
 from loguru import logger
 
 from app.services.llm_service import LLMService
+from app.services.websocket.sentence_builder import SentenceToTranslate
+
+
+@dataclass
+class TranslationResult:
+    """翻译结果"""
+
+    text: str
+    segment_id: str
+    sentence_index: int
+    is_final: bool = True
+    error: bool = False
 
 
 class TranslationHandler:
-    """翻译处理器，根据 buffer_duration 选择策略
+    """翻译处理器
 
-    极速模式 (buffer_duration=0):
-        每个 is_final 立即翻译，适用于伪流式（Groq/OpenAI）
+    接收 SentenceBuilder 输出的完整句子，执行翻译，
+    返回带 segment_id + sentence_index 的结果以保证前端显示顺序。
 
-    节流模式 (buffer_duration>0):
-        使用时间间隔控制发送频率，保证 RPM 不超限
-        每个 transcript_id 单独翻译，彻底解决错位问题
+    Attributes:
+        llm_service: LLM 服务实例
+        rpm_limit: 每分钟最大请求数
+        capacity: 令牌桶容量（最大突发数）
     """
 
-    # 默认 RPM 限制（每分钟最大请求次数）
-    DEFAULT_RPM_LIMIT = 20
+    # 默认 RPM 限制
+    DEFAULT_RPM_LIMIT = 100
+    # 默认桶容量（突发限制）
+    DEFAULT_CAPACITY = 10
 
     def __init__(
         self,
         llm_service: LLMService,
-        buffer_duration: float,
         source_lang: str = "en",
         target_lang: str = "zh",
         translation_timeout: float = 15.0,
         rpm_limit: int = DEFAULT_RPM_LIMIT,
+        # 保留 buffer_duration 参数以兼容现有调用
+        buffer_duration: float = 0.0,
     ):
         self.llm_service = llm_service
-        self.buffer_duration = buffer_duration
         self.source_lang = source_lang
         self.target_lang = target_lang
         self.translation_timeout = translation_timeout
 
-        # RPM 控制
+        # 保留兼容参数（未来可移除）
+        self.buffer_duration = buffer_duration
+
+        # RPM 控制（令牌桶算法）
         self.rpm_limit = rpm_limit
-        self.min_interval = 60.0 / rpm_limit  # 最小间隔（秒）
-        self._last_request_time: float = 0.0
+        self.capacity = self.DEFAULT_CAPACITY
+        # 计算回血速率 (tokens/sec)
+        self.refill_rate = rpm_limit / 60.0
+        
+        # 初始状态：桶满
+        self.tokens = float(self.capacity)
+        self.last_update = time.monotonic()
 
         # 上下文（用于翻译连贯性）
         self._last_context: str = ""
 
     def reset(self):
-        """重置状态"""
-        self._last_request_time = 0.0
+        """重置状态（新录音开始时调用）"""
+        # 重置时桶也回满
+        self.tokens = float(self.capacity)
+        self.last_update = time.monotonic()
         self._last_context = ""
+
+    async def translate_sentence(
+        self,
+        sentence: SentenceToTranslate,
+        on_complete: Optional[Callable[[TranslationResult], Awaitable[None]]] = None,
+    ) -> TranslationResult:
+        """翻译单个句子
+
+        这是新的核心方法，替代旧的 handle_transcript。
+
+        Args:
+            sentence: 待翻译的句子（来自 SentenceBuilder）
+            on_complete: 翻译完成后的异步回调（无论成功失败都会调用）
+
+        Returns:
+            翻译结果（带 segment_id 和 sentence_index）
+        """
+        result: TranslationResult
+
+        if not sentence.text.strip():
+            result = TranslationResult(
+                text="",
+                segment_id=sentence.segment_id,
+                sentence_index=sentence.sentence_index,
+                is_final=True,
+                error=True,
+            )
+            if on_complete:
+                await on_complete(result)
+            return result
+
+        # 等待令牌（Token Bucket）
+        await self._wait_for_rate_limit()
+
+        try:
+            translated = await asyncio.wait_for(
+                self.llm_service.translate(
+                    sentence.text,
+                    source_lang=self.source_lang,
+                    target_lang=self.target_lang,
+                    context=self._last_context,
+                ),
+                timeout=self.translation_timeout,
+            )
+
+            # 更新上下文
+            self._last_context = sentence.text
+
+            result = TranslationResult(
+                text=translated,
+                segment_id=sentence.segment_id,
+                sentence_index=sentence.sentence_index,
+                is_final=True,
+            )
+
+        except TimeoutError:
+            logger.warning(f"Translation timeout for: {sentence.text[:50]}...")
+            result = TranslationResult(
+                text="[翻译超时]",
+                segment_id=sentence.segment_id,
+                sentence_index=sentence.sentence_index,
+                is_final=True,
+                error=True,
+            )
+        except Exception as e:
+            logger.warning(f"Translation error: {e}")
+            result = TranslationResult(
+                text="[翻译失败]",
+                segment_id=sentence.segment_id,
+                sentence_index=sentence.sentence_index,
+                is_final=True,
+                error=True,
+            )
+            
+        # 触发回调
+        if on_complete:
+            try:
+                await on_complete(result)
+            except Exception as e:
+                logger.error(f"Error in translation completion callback: {e}")
+
+        return result
+
+    async def _wait_for_rate_limit(self):
+        """等待 RPM 限速（令牌桶算法）"""
+        while True:
+            now = time.monotonic()
+            elapsed = now - self.last_update
+            
+            # 1. 回血 (Refill)
+            # 计算这段时间产生的新令牌
+            new_tokens = elapsed * self.refill_rate
+            
+            if new_tokens > 0:
+                self.tokens = min(self.capacity, self.tokens + new_tokens)
+                self.last_update = now
+            
+            # 2. 扣费 (Consume)
+            if self.tokens >= 1.0:
+                self.tokens -= 1.0
+                return # 立即放行
+            
+            # 3. 等待 (Wait)
+            # 计算攒够 1 个令牌还需要多久
+            needed = 1.0 - self.tokens
+            wait_time = needed / self.refill_rate
+            
+            # 加上一点点buffer防止浮点数误差
+            wait_time = max(0.01, wait_time)
+            
+            # logger.debug(f"Throttling: tokens={self.tokens:.2f}, waiting {wait_time:.2f}s")
+            await asyncio.sleep(wait_time)
+            # 醒来后循环继续，重新计算回血和扣费
+
+    # ===== 兼容旧 API（过渡期使用，后续可删除）=====
 
     async def handle_transcript(
         self,
@@ -62,66 +209,21 @@ class TranslationHandler:
         transcript_id: str = "",
     ) -> list[dict]:
         """
-        处理转录结果，根据策略决定是否翻译
+        【兼容方法】处理转录结果
+
+        为保持向后兼容而保留，新代码应使用 translate_sentence。
 
         返回:
             list[dict]: 翻译结果列表 [{"text": "...", "is_final": bool, "transcript_id": str}, ...]
         """
-        if self.buffer_duration == 0:
-            return await self._fast_mode(text, is_final, transcript_id)
-        else:
-            return await self._throttle_mode(text, is_final, transcript_id)
-
-    async def flush(self, transcript_id: str = "") -> list[dict]:
-        """
-        强制翻译（用于停止录制时）
-        节流模式下每个 ID 已单独处理，无需额外 flush
-        """
-        # 新逻辑下不再有积压的 buffer，直接返回空
-        return []
-
-    async def _fast_mode(self, text: str, is_final: bool, transcript_id: str = "") -> list[dict]:
-        """
-        极速模式：只翻译 Final（不翻译 interim）
-        一个 final 对应一次翻译调用，适用于伪流式
-        """
         if not is_final:
             return []
 
-        res = await self._translate(text, is_final=True, transcript_id=transcript_id)
-        return [res] if res else []
-
-    async def _throttle_mode(
-        self, text: str, is_final: bool, transcript_id: str = ""
-    ) -> list[dict]:
-        """
-        节流模式（基于时间间隔控制 RPM）：
-        - 每个 is_final 单独翻译（解决错位问题）
-        - 通过等待时间间隔来控制 RPM 不超限
-        """
-        if not is_final:
-            return []
-
-        # 计算需要等待的时间
-        now = time.time()
-        elapsed = now - self._last_request_time
-        wait_time = self.min_interval - elapsed
-
-        if wait_time > 0:
-            logger.debug(f"Throttling: waiting {wait_time:.2f}s before translation")
-            await asyncio.sleep(wait_time)
-
-        # 更新最后请求时间
-        self._last_request_time = time.time()
-
-        # 单独翻译这个 transcript_id
-        res = await self._translate(text, is_final=True, transcript_id=transcript_id)
-        return [res] if res else []
-
-    async def _translate(self, text: str, is_final: bool, transcript_id: str = "") -> dict | None:
-        """执行翻译"""
         if not text.strip():
-            return None
+            return []
+
+        # 等待 RPM 限速
+        await self._wait_for_rate_limit()
 
         try:
             translated = await asyncio.wait_for(
@@ -134,14 +236,21 @@ class TranslationHandler:
                 timeout=self.translation_timeout,
             )
 
-            if is_final:
-                self._last_context = text
+            self._last_context = text
 
-            return {"text": translated, "is_final": is_final, "transcript_id": transcript_id}
+            return [{"text": translated, "is_final": is_final, "transcript_id": transcript_id}]
 
         except TimeoutError:
             logger.warning(f"Translation timeout for: {text[:50]}...")
-            return None
+            return []
         except Exception as e:
             logger.warning(f"Translation error: {e}")
-            return None
+            return []
+
+    async def flush(self, transcript_id: str = "") -> list[dict]:
+        """
+        【兼容方法】强制翻译
+
+        新逻辑下不再有积压的 buffer，直接返回空。
+        """
+        return []

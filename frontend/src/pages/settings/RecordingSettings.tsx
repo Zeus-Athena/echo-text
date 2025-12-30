@@ -30,12 +30,12 @@ export function RecordingSettings() {
     const [silenceThreshold, setSilenceThreshold] = useState(30)
     const [silencePreferSource, setSilencePreferSource] = useState<'current' | 'auto'>('current')
     const [thresholdSource, setThresholdSource] = useState<'default' | 'manual' | 'manual_detect' | 'auto'>('default')
-    const [translationMode, setTranslationMode] = useState(0)
+    const [translationMode, setTranslationMode] = useState(100)  // RPM 限制，默认 100
     const [softThreshold, setSoftThreshold] = useState(50)
     const [hardThreshold, setHardThreshold] = useState(100)
 
-    const sttProvider = config?.stt?.provider
-    const isStreamingProvider = sttProvider === 'Deepgram'
+    // 使用后端返回的 is_true_streaming 判断显示哪个配置项
+    const isTrueStreaming = config?.stt?.is_true_streaming ?? false
 
     useEffect(() => {
         if (config?.recording) {
@@ -44,7 +44,9 @@ export function RecordingSettings() {
             const preferSource = config.recording.silence_prefer_source
             setSilencePreferSource(preferSource === 'manual' ? 'current' : (preferSource as 'current' | 'auto') ?? 'current')
             setThresholdSource((config.recording.silence_threshold_source as any) ?? 'default')
-            setTranslationMode(config.recording.translation_mode ?? 0)
+            // RPM 配置：老数据 (0, 6) 自动修正为 100
+            const rawRpm = config.recording.translation_mode ?? 100
+            setTranslationMode(rawRpm < 10 ? 100 : rawRpm)
             setSoftThreshold(config.recording.segment_soft_threshold ?? 50)
             setHardThreshold(config.recording.segment_hard_threshold ?? 100)
         }
@@ -123,7 +125,7 @@ export function RecordingSettings() {
                     </div>
                 </div>
 
-                {!isStreamingProvider ? (
+                {!isTrueStreaming ? (
                     <div className="space-y-6">
                         <div className="space-y-3">
                             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
@@ -153,32 +155,43 @@ export function RecordingSettings() {
                     </div>
                 ) : (
                     <div className="space-y-6">
-                        <div className="space-y-3">
-                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">翻译响应策略</label>
-                            <div className="grid grid-cols-2 gap-2 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-xl border border-slate-200 dark:border-slate-700">
-                                {[
-                                    { val: 0, label: '极速模式' },
-                                    { val: 6, label: '节流模式' }
-                                ].map((opt) => (
-                                    <button
-                                        key={opt.val}
-                                        onClick={() => setTranslationMode(opt.val)}
-                                        className={clsx(
-                                            "py-2 rounded-lg text-xs font-semibold transition-all",
-                                            translationMode === opt.val
-                                                ? "bg-white dark:bg-slate-700 text-brand-600 dark:text-white shadow-sm"
-                                                : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                                        )}
-                                    >
-                                        {opt.label}
-                                    </button>
-                                ))}
+                        {/* RPM 限制滑块 */}
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    翻译速率限制 (RPM)
+                                </label>
+                                <div className="bg-brand-50 dark:bg-brand-900/10 px-3 py-1 rounded-full border border-brand-100 dark:border-brand-900/20">
+                                    <span className="font-mono text-brand-600 dark:text-brand-400 font-bold text-xs">
+                                        {translationMode} 次/分钟
+                                    </span>
+                                </div>
                             </div>
+                            <div className="relative h-10 w-full flex items-center">
+                                <div className="absolute left-0 right-0 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full" />
+                                <div
+                                    className="absolute left-0 h-1.5 bg-brand-500 rounded-full"
+                                    style={{ width: `${(translationMode - 10) / (300 - 10) * 100}%` }}
+                                />
+                                <input
+                                    type="range" min="10" max="300" step="10"
+                                    value={translationMode}
+                                    onChange={(e) => setTranslationMode(Number(e.target.value))}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                                />
+                                <div
+                                    className="absolute w-5 h-5 bg-white dark:bg-brand-50 rounded-full border-2 border-brand-500 shadow-sm pointer-events-none transition-transform z-10"
+                                    style={{ left: `calc(${(translationMode - 10) / (300 - 10) * 100}% - 10px)` }}
+                                />
+                            </div>
+                            <p className="text-xs text-gray-500">
+                                每分钟最大翻译请求次数。较高值响应更快，但可能触发 LLM API 限流。推荐：Groq 免费版设 60，付费 API 设 100-200
+                            </p>
                         </div>
                         <div className="p-4 bg-brand-50 dark:bg-brand-900/10 rounded-xl border border-brand-100 dark:border-brand-900/20 flex items-start gap-3">
                             <Activity className="w-4 h-4 text-brand-500 mt-0.5" />
                             <p className="text-xs text-brand-700 dark:text-brand-300 leading-relaxed">
-                                当前使用 Deepgram 实时流。系统将根据网络状况和所选策略，为您推送最佳的实时转录结果。
+                                当前使用实时流式转录。系统将按完整句子触发翻译，并根据 RPM 限制控制请求频率。
                             </p>
                         </div>
                     </div>

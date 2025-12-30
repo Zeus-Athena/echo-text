@@ -140,9 +140,11 @@ class TrueStreamingProcessor(BaseAudioProcessor):
         if not self._upstream_ws:
             return
 
-        # 可选: 轻量级静音检测 (节省带宽)
-        # 注意: 这里只过滤绝对静音，真正的 VAD 由 Deepgram 处理
-        if await self._is_silence(chunk):
+        # 可选: 轻量级静音检测 (用于僵尸连接检测)
+        # 注意: 对于 WebM/Opus 流，绝对不能在客户端丢弃数据包，否则会导致流损坏
+        is_silent = await self._is_silence(chunk)
+        
+        if is_silent:
             self._silence_counter += 1
 
             # 僵尸连接检测: 5 分钟无语音自动断开
@@ -153,15 +155,12 @@ class TrueStreamingProcessor(BaseAudioProcessor):
                 await self._emit_error("长时间无语音，连接已断开")
                 await self.stop()
                 return
-
-            # 即使是静音，也定期发送一些数据保持连接活性
-            if self._silence_counter % 10 != 0:
-                return
         else:
             self._silence_counter = 0
             import time
-
             self._last_speech_time = time.time()
+
+        # 透传给 Deepgram (始终发送，依赖 Deepgram 服务端 VAD)
 
         # 透传给 Deepgram
         try:

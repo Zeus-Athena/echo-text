@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_admin_user, get_current_user
 from app.core.database import get_db
 from app.core.security import get_password_hash, verify_password
+from app.core.stt_model_registry import is_true_streaming as _is_true_streaming
 from app.models.user import User, UserConfig
 from app.schemas.user import (
     AdminCreateUser,
@@ -181,6 +182,7 @@ async def get_user_config(
                 "siliconflow": mask_key(api_config.stt_siliconflow_api_key),
             },
             urls=parse_urls(api_config.stt_urls),
+            is_true_streaming=_is_true_streaming(api_config.stt_provider, api_config.stt_model),
         ),
         tts=TTSConfig(
             provider=api_config.tts_provider,

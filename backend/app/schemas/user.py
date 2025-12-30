@@ -113,6 +113,7 @@ class STTConfig(BaseModel):
     model: str | None = None
     keys: dict[str, str | None] | None = None
     urls: dict[str, str | None] | None = None  # Provider-specific URLs
+    is_true_streaming: bool = False  # 是否支持真流式（由后端根据模型计算填充）
 
 
 class TTSConfig(BaseModel):

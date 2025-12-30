@@ -395,28 +395,35 @@ function RealtimeRecordingPanel() {
                         className="w-full flex flex-col gap-6 p-6"
                     >
                         {/* Historical Segments */}
-                        {stt.segments.map((seg, i) => (
-                            <TranscriptCard
-                                key={i}
-                                transcript={seg.text}
-                                translation={seg.translation}
-                                isFinal={true}
-                                onCopy={copyToClipboard}
-                            />
-                        ))}
+                        {stt.segments.map((seg, i) => {
+                            const isLastAndActive = i === stt.segments.length - 1 && seg.isFinal === false
+                            return (
+                                <TranscriptCard
+                                    key={seg.id || i}
+                                    transcript={seg.text}
+                                    translation={seg.translation}
+                                    isFinal={seg.isFinal ?? true}
+                                    interimTranscript={isLastAndActive ? stt.interimTranscript : undefined}
+                                    interimTranslation={isLastAndActive ? stt.interimTranslation : undefined}
+                                    onCopy={copyToClipboard}
+                                />
+                            )
+                        })}
 
-                        {/* Current Segment (Final accumulating) + Interim */}
-                        {(stt.transcript || stt.translation || stt.interimTranscript) && (
-                            <TranscriptCard
-                                transcript={stt.transcript}
-                                translation={stt.translation}
-                                interimTranscript={stt.interimTranscript}
-                                interimTranslation={stt.interimTranslation}
-                                isFinal={false}
-                                onCopy={copyToClipboard}
-                                className="border-brand-200 dark:border-brand-800 ring-1 ring-brand-100 dark:ring-brand-900"
-                            />
-                        )}
+                        {/* Current Segment (Legacy Mode or Fallback) */}
+                        {/* Only show if we strictly have no active segment in list to avoid duplication */}
+                        {(!stt.segments.length || stt.segments[stt.segments.length - 1].isFinal !== false) &&
+                            (stt.transcript || stt.translation || stt.interimTranscript) && (
+                                <TranscriptCard
+                                    transcript={stt.transcript}
+                                    translation={stt.translation}
+                                    interimTranscript={stt.interimTranscript}
+                                    interimTranslation={stt.interimTranslation}
+                                    isFinal={false}
+                                    onCopy={copyToClipboard}
+                                    className="border-brand-200 dark:border-brand-800 ring-1 ring-brand-100 dark:ring-brand-900"
+                                />
+                            )}
                     </div>
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center">

@@ -58,6 +58,7 @@ class ConnectionManager:
         start_time: float | None = None,
         end_time: float | None = None,
         transcript_id: str = "",
+        segment_id: str = "",
     ) -> bool:
         """发送转录结果"""
         data = {
@@ -73,6 +74,8 @@ class ConnectionManager:
             data["end_time"] = end_time
         if transcript_id:
             data["transcript_id"] = transcript_id
+        if segment_id:
+            data["segment_id"] = segment_id
         return await self.send_json(client_id, data)
 
     async def send_translation(
@@ -109,6 +112,54 @@ class ConnectionManager:
             {
                 "type": "error",
                 "message": message,
+            },
+        )
+
+    async def send_segment_complete(
+        self,
+        client_id: str,
+        segment_id: str,
+        text: str,
+        start: float,
+        end: float,
+    ) -> bool:
+        """发送卡片切分完成事件
+
+        前端收到此事件后，应该固定当前卡片，开始新卡片。
+        """
+        return await self.send_json(
+            client_id,
+            {
+                "type": "segment_complete",
+                "segment_id": segment_id,
+                "text": text,
+                "start": start,
+                "end": end,
+            },
+        )
+
+    async def send_translation_v2(
+        self,
+        client_id: str,
+        text: str,
+        segment_id: str,
+        sentence_index: int,
+        is_final: bool = True,
+        error: bool = False,
+    ) -> bool:
+        """发送翻译结果 V2（带 segment_id + sentence_index）
+
+        这是新的翻译发送方法，支持按 sentence_index 排序。
+        """
+        return await self.send_json(
+            client_id,
+            {
+                "type": "translation",
+                "text": text,
+                "segment_id": segment_id,
+                "sentence_index": sentence_index,
+                "is_final": is_final,
+                "error": error,
             },
         )
 

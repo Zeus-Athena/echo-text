@@ -82,6 +82,7 @@ export interface STTConfig {
     base_url?: string | null
     model?: string | null
     keys?: Record<string, string | null> | null
+    is_true_streaming?: boolean  // 是否支持真流式（由后端根据模型计算）
 }
 
 export interface TTSConfig {
@@ -108,7 +109,7 @@ export interface RecordingConfig {
     silence_mode: 'manual' | 'adaptive'
     silence_prefer_source: 'current' | 'auto'
     silence_threshold_source: 'default' | 'manual' | 'manual_detect' | 'auto'
-    translation_mode?: number  // 0=fast mode, 6=throttle mode (for Deepgram)
+    translation_mode?: number  // RPM 限制 (10-300)，真流式时有效
     segment_soft_threshold?: number
     segment_hard_threshold?: number
 }
