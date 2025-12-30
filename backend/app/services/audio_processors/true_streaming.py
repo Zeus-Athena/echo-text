@@ -143,7 +143,7 @@ class TrueStreamingProcessor(BaseAudioProcessor):
         # 可选: 轻量级静音检测 (用于僵尸连接检测)
         # 注意: 对于 WebM/Opus 流，绝对不能在客户端丢弃数据包，否则会导致流损坏
         is_silent = await self._is_silence(chunk)
-        
+
         if is_silent:
             self._silence_counter += 1
 
@@ -158,6 +158,7 @@ class TrueStreamingProcessor(BaseAudioProcessor):
         else:
             self._silence_counter = 0
             import time
+
             self._last_speech_time = time.time()
 
         # 透传给 Deepgram (始终发送，依赖 Deepgram 服务端 VAD)

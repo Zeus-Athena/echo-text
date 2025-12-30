@@ -58,39 +58,37 @@ PROVIDER_DEFAULT_STREAMING_TYPE: dict[str, str] = {
 def get_streaming_type(provider: str, model: str) -> str:
     """
     根据模型判断流式类型
-    
+
     Args:
         provider: STT Provider 名称
         model: STT 模型名称
-        
+
     Returns:
         "true_streaming" 或 "simulated_streaming"
     """
     model_lower = (model or "").lower()
     provider_lower = (provider or "").lower()
-    
+
     # 优先按模型查找
     if model_lower in MODEL_STREAMING_TYPE:
         return MODEL_STREAMING_TYPE[model_lower]
-    
+
     # 模型不在映射表中，按 Provider 默认
     streaming_type = PROVIDER_DEFAULT_STREAMING_TYPE.get(provider_lower, "simulated_streaming")
-    
-    logger.debug(
-        f"Model '{model}' not in registry, using provider default: {streaming_type}"
-    )
-    
+
+    logger.debug(f"Model '{model}' not in registry, using provider default: {streaming_type}")
+
     return streaming_type
 
 
 def is_true_streaming(provider: str, model: str) -> bool:
     """
     判断模型是否支持真流式
-    
+
     Args:
         provider: STT Provider 名称
         model: STT 模型名称
-        
+
     Returns:
         True 表示真流式，False 表示伪流式
     """

@@ -11,7 +11,8 @@ Ordered Translation Sender
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from app.services.websocket.translation_handler import TranslationResult
 

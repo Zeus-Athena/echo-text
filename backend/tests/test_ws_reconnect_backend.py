@@ -53,6 +53,8 @@ async def test_ws_reconnect_start_logic():
         "audio_buffer_duration": 5.0,
         "silence_threshold": 30.0,
         "translation_mode": 0,
+        "segment_soft_threshold": 30,
+        "segment_hard_threshold": 60,
     }
     mock_config = SimpleMock(**config_attrs)
 

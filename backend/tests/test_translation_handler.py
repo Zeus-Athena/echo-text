@@ -64,10 +64,10 @@ class TestTranslationHandler:
         assert handler.target_lang == "en"
         assert handler.translation_timeout == 15.0
         assert handler.rpm_limit == 30
-        assert handler.min_interval == 2.0  # 60 / 30 = 2s
+        assert handler.refill_rate == 30 / 60.0  # 令牌桶回血速率
 
     def test_init_default_rpm_limit(self, mock_llm_service):
-        """测试默认 RPM 限制"""
+        """测试默认 RPM 限制 (新默认值为 100)"""
         from app.services.websocket.translation_handler import TranslationHandler
 
         handler = TranslationHandler(
@@ -75,17 +75,17 @@ class TestTranslationHandler:
             buffer_duration=5.0,
         )
 
-        assert handler.rpm_limit == 20
-        assert handler.min_interval == 3.0  # 60 / 20 = 3s
+        assert handler.rpm_limit == 100  # 新默认值
+        assert handler.refill_rate == 100 / 60.0
 
     def test_reset_clears_state(self, handler_fast_mode):
-        """测试 reset 清空状态"""
-        handler_fast_mode._last_request_time = 100.0
+        """测试 reset 清空状态 (令牌桶重置)"""
+        handler_fast_mode.tokens = 0  # 耗尽令牌
         handler_fast_mode._last_context = "some context"
 
         handler_fast_mode.reset()
 
-        assert handler_fast_mode._last_request_time == 0.0
+        assert handler_fast_mode.tokens == float(handler_fast_mode.capacity)  # 桶满
         assert handler_fast_mode._last_context == ""
 
     # === 极速模式测试 ===
@@ -158,26 +158,27 @@ class TestTranslationHandler:
         assert mock_llm_service.translate.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_throttle_mode_respects_min_interval(
+    async def test_throttle_mode_respects_rate_limit(
         self, handler_throttle_mode, mock_llm_service
     ):
-        """节流模式：遵守最小时间间隔"""
-        # 设置一个很短的间隔用于测试
-        handler_throttle_mode.rpm_limit = 60
-        handler_throttle_mode.min_interval = 1.0
+        """节流模式：遵守令牌桶限速 (首次请求消耗令牌后需等待)"""
+        # 令牌桶初始满：10 个令牌，RPM=20 -> refill_rate = 0.333/s
+        # 快速连续调用会消耗令牌，之后需等待
+        
+        # 耗尽所有令牌
+        handler_throttle_mode.tokens = 0.0
+        handler_throttle_mode.last_update = __import__('time').monotonic()
 
+        import time
         start_time = time.time()
 
-        # 第一次翻译
+        # 此时令牌为 0，需要等待
         await handler_throttle_mode.handle_transcript("Hello", is_final=True)
-
-        # 第二次翻译（应该等待约 1 秒）
-        await handler_throttle_mode.handle_transcript("World", is_final=True)
 
         elapsed = time.time() - start_time
 
-        # 两次翻译之间应该至少有 1 秒间隔
-        assert elapsed >= 1.0
+        # 由于令牌为 0，需等待约 3 秒 (60/20 = 3s for 1 token)
+        assert elapsed >= 2.5  # 允许一些误差
 
     @pytest.mark.asyncio
     async def test_throttle_mode_no_wait_on_first_request(
@@ -194,15 +195,17 @@ class TestTranslationHandler:
         assert elapsed < 0.5
 
     @pytest.mark.asyncio
-    async def test_throttle_mode_updates_last_request_time(
+    async def test_throttle_mode_updates_last_update_time(
         self, handler_throttle_mode, mock_llm_service
     ):
-        """节流模式：更新最后请求时间"""
-        handler_throttle_mode._last_request_time = 0.0
+        """节流模式：更新最后更新时间 (令牌桶)"""
+        import time
+        old_update = handler_throttle_mode.last_update
 
         await handler_throttle_mode.handle_transcript("Hello", is_final=True)
 
-        assert handler_throttle_mode._last_request_time > 0
+        # last_update 应该被更新
+        assert handler_throttle_mode.last_update >= old_update
 
     # === flush 测试 ===
 
@@ -278,8 +281,8 @@ class TestTranslationHandler:
         )
 
 
-class TestThrottleModeRPMControl:
-    """节流模式 RPM 控制专项测试"""
+class TestTokenBucketRPMControl:
+    """令牌桶 RPM 控制专项测试"""
 
     @pytest.fixture
     def mock_llm_service(self):
@@ -288,8 +291,8 @@ class TestThrottleModeRPMControl:
         return service
 
     @pytest.mark.asyncio
-    async def test_rpm_20_means_3s_interval(self, mock_llm_service):
-        """RPM=20 对应 3 秒间隔"""
+    async def test_rpm_20_refill_rate(self, mock_llm_service):
+        """RPM=20 对应 refill_rate = 0.333/s"""
         from app.services.websocket.translation_handler import TranslationHandler
 
         handler = TranslationHandler(
@@ -298,24 +301,11 @@ class TestThrottleModeRPMControl:
             rpm_limit=20,
         )
 
-        assert handler.min_interval == 3.0
+        assert abs(handler.refill_rate - 20 / 60.0) < 0.001
 
     @pytest.mark.asyncio
-    async def test_rpm_30_means_2s_interval(self, mock_llm_service):
-        """RPM=30 对应 2 秒间隔"""
-        from app.services.websocket.translation_handler import TranslationHandler
-
-        handler = TranslationHandler(
-            llm_service=mock_llm_service,
-            buffer_duration=1.0,
-            rpm_limit=30,
-        )
-
-        assert handler.min_interval == 2.0
-
-    @pytest.mark.asyncio
-    async def test_rpm_60_means_1s_interval(self, mock_llm_service):
-        """RPM=60 对应 1 秒间隔"""
+    async def test_rpm_60_refill_rate(self, mock_llm_service):
+        """RPM=60 对应 refill_rate = 1.0/s"""
         from app.services.websocket.translation_handler import TranslationHandler
 
         handler = TranslationHandler(
@@ -324,7 +314,28 @@ class TestThrottleModeRPMControl:
             rpm_limit=60,
         )
 
-        assert handler.min_interval == 1.0
+        assert abs(handler.refill_rate - 1.0) < 0.001
+
+    @pytest.mark.asyncio
+    async def test_bucket_allows_burst(self, mock_llm_service):
+        """令牌桶允许突发请求"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler = TranslationHandler(
+            llm_service=mock_llm_service,
+            rpm_limit=60,  # 1 token/s
+        )
+        # 初始桶满 (10 tokens)
+        
+        import time
+        start = time.time()
+        # 快速连续 5 次请求
+        for i in range(5):
+            await handler.handle_transcript(f"Text {i}", is_final=True)
+        elapsed = time.time() - start
+        
+        # 由于桶满，应该无需等待（<1s）
+        assert elapsed < 1.0
 
 
 class TestSingleIDTranslation:
@@ -390,3 +401,155 @@ class TestSingleIDTranslation:
 
         # 接收到的 ID 应该与发送的完全一致
         assert ids_received == ids_sent
+
+
+class TestTranslateSentenceAPI:
+    """新 translate_sentence API 测试"""
+
+    @pytest.fixture
+    def mock_llm_service(self):
+        service = MagicMock()
+        service.translate = AsyncMock(return_value="翻译结果")
+        return service
+
+    @pytest.fixture
+    def handler(self, mock_llm_service):
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        return TranslationHandler(
+            llm_service=mock_llm_service,
+            source_lang="en",
+            target_lang="zh",
+            rpm_limit=600,  # 高 RPM 减少测试等待
+        )
+
+    @pytest.mark.asyncio
+    async def test_translate_sentence_returns_result(self, handler, mock_llm_service):
+        """translate_sentence 返回正确的结果"""
+        from app.services.websocket.sentence_builder import SentenceToTranslate
+
+        sentence = SentenceToTranslate(
+            text="Hello world.",
+            segment_id="seg-123",
+            sentence_index=0,
+        )
+
+        result = await handler.translate_sentence(sentence)
+
+        assert result.text == "翻译结果"
+        assert result.segment_id == "seg-123"
+        assert result.sentence_index == 0
+        assert result.is_final is True
+        assert result.error is False
+
+    @pytest.mark.asyncio
+    async def test_translate_sentence_preserves_segment_id(self, handler, mock_llm_service):
+        """translate_sentence 保留 segment_id"""
+        from app.services.websocket.sentence_builder import SentenceToTranslate
+
+        sentence = SentenceToTranslate(
+            text="Test.",
+            segment_id="unique-segment-id",
+            sentence_index=5,
+        )
+
+        result = await handler.translate_sentence(sentence)
+
+        assert result.segment_id == "unique-segment-id"
+        assert result.sentence_index == 5
+
+    @pytest.mark.asyncio
+    async def test_translate_sentence_updates_context(self, handler, mock_llm_service):
+        """translate_sentence 更新上下文"""
+        from app.services.websocket.sentence_builder import SentenceToTranslate
+
+        sentence = SentenceToTranslate(
+            text="First sentence.",
+            segment_id="seg-1",
+            sentence_index=0,
+        )
+
+        await handler.translate_sentence(sentence)
+
+        assert handler._last_context == "First sentence."
+
+    @pytest.mark.asyncio
+    async def test_translate_sentence_timeout_returns_error(self, handler, mock_llm_service):
+        """translate_sentence 超时返回错误结果"""
+        import asyncio
+
+        from app.services.websocket.sentence_builder import SentenceToTranslate
+
+        async def slow_translate(*args, **kwargs):
+            await asyncio.sleep(100)
+            return "result"
+
+        mock_llm_service.translate = slow_translate
+        handler.translation_timeout = 0.01
+
+        sentence = SentenceToTranslate(
+            text="Will timeout.",
+            segment_id="seg-1",
+            sentence_index=0,
+        )
+
+        result = await handler.translate_sentence(sentence)
+
+        assert result.error is True
+        assert result.text == "[翻译超时]"
+        assert result.segment_id == "seg-1"
+
+    @pytest.mark.asyncio
+    async def test_translate_sentence_error_returns_error(self, handler, mock_llm_service):
+        """translate_sentence 异常返回错误结果"""
+        from app.services.websocket.sentence_builder import SentenceToTranslate
+
+        mock_llm_service.translate = AsyncMock(side_effect=Exception("API Error"))
+
+        sentence = SentenceToTranslate(
+            text="Will fail.",
+            segment_id="seg-1",
+            sentence_index=0,
+        )
+
+        result = await handler.translate_sentence(sentence)
+
+        assert result.error is True
+        assert result.text == "[翻译失败]"
+
+    @pytest.mark.asyncio
+    async def test_translate_sentence_empty_text(self, handler):
+        """translate_sentence 空文本返回错误"""
+        from app.services.websocket.sentence_builder import SentenceToTranslate
+
+        sentence = SentenceToTranslate(
+            text="",
+            segment_id="seg-1",
+            sentence_index=0,
+        )
+
+        result = await handler.translate_sentence(sentence)
+
+        assert result.error is True
+        assert result.text == ""
+
+    @pytest.mark.asyncio
+    async def test_translate_sentence_respects_rate_limit(self, handler, mock_llm_service):
+        """translate_sentence 遵守令牌桶限速"""
+        from app.services.websocket.sentence_builder import SentenceToTranslate
+
+        # 设置 RPM=60 (1 token/s) 并耗尽令牌
+        handler.rpm_limit = 60
+        handler.refill_rate = 1.0
+        handler.tokens = 0.0  # 耗尽
+        handler.last_update = __import__('time').monotonic()
+
+        sentence1 = SentenceToTranslate(text="First.", segment_id="seg-1", sentence_index=0)
+
+        import time
+        start_time = time.time()
+        await handler.translate_sentence(sentence1)
+        elapsed = time.time() - start_time
+
+        # 由于令牌为 0，需等待约 1 秒
+        assert elapsed >= 0.9

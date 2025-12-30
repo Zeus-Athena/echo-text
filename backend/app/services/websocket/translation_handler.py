@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Optional, Callable, Awaitable
 
 from loguru import logger
 
@@ -72,7 +72,7 @@ class TranslationHandler:
         self.capacity = self.DEFAULT_CAPACITY
         # 计算回血速率 (tokens/sec)
         self.refill_rate = rpm_limit / 60.0
-        
+
         # 初始状态：桶满
         self.tokens = float(self.capacity)
         self.last_update = time.monotonic()
@@ -90,7 +90,7 @@ class TranslationHandler:
     async def translate_sentence(
         self,
         sentence: SentenceToTranslate,
-        on_complete: Optional[Callable[[TranslationResult], Awaitable[None]]] = None,
+        on_complete: Callable[[TranslationResult], Awaitable[None]] | None = None,
     ) -> TranslationResult:
         """翻译单个句子
 
@@ -159,7 +159,7 @@ class TranslationHandler:
                 is_final=True,
                 error=True,
             )
-            
+
         # 触发回调
         if on_complete:
             try:
@@ -174,28 +174,28 @@ class TranslationHandler:
         while True:
             now = time.monotonic()
             elapsed = now - self.last_update
-            
+
             # 1. 回血 (Refill)
             # 计算这段时间产生的新令牌
             new_tokens = elapsed * self.refill_rate
-            
+
             if new_tokens > 0:
                 self.tokens = min(self.capacity, self.tokens + new_tokens)
                 self.last_update = now
-            
+
             # 2. 扣费 (Consume)
             if self.tokens >= 1.0:
                 self.tokens -= 1.0
-                return # 立即放行
-            
+                return  # 立即放行
+
             # 3. 等待 (Wait)
             # 计算攒够 1 个令牌还需要多久
             needed = 1.0 - self.tokens
             wait_time = needed / self.refill_rate
-            
+
             # 加上一点点buffer防止浮点数误差
             wait_time = max(0.01, wait_time)
-            
+
             # logger.debug(f"Throttling: tokens={self.tokens:.2f}, waiting {wait_time:.2f}s")
             await asyncio.sleep(wait_time)
             # 醒来后循环继续，重新计算回血和扣费

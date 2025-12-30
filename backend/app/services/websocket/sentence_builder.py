@@ -151,7 +151,7 @@ class SentenceBuilder:
         self.current_segment_id = new_segment_id
         # self.locked_segment_id 会在下一个新句子开始时自动设置
         self.sentence_index = 0
-        
+
         return flushed_sentences
 
     def get_incomplete_text(self) -> str:

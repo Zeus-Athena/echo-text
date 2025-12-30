@@ -14,12 +14,12 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional, List
 
 
 @dataclass
 class SegmentEvent:
     """Segment 生命周期事件"""
+
     type: str  # 'created', 'updated', 'closed'
     segment_id: str
     data: dict = field(default_factory=dict)
@@ -48,9 +48,9 @@ class SegmentSupervisor:
         self.end_time: float = 0.0
         self._has_start_time: bool = False
         self._current_segment_id: str = self._generate_segment_id()
-        
+
         # 记录已发出的事件，用于去重或状态追踪（可选）
-        self.events_history: List[SegmentEvent] = []
+        self.events_history: list[SegmentEvent] = []
 
     @staticmethod
     def _generate_segment_id() -> str:
@@ -66,10 +66,10 @@ class SegmentSupervisor:
             return 0
         return len(self.buffer.strip().split())
 
-    def add_transcript(self, text: str, start: float, end: float) -> List[SegmentEvent]:
+    def add_transcript(self, text: str, start: float, end: float) -> list[SegmentEvent]:
         """处理新的转录片段，并返回产生的事件列表"""
         events = []
-        
+
         if not text or not text.strip():
             # 即使没有文本更新，时间戳可能也需要更新？通常 Deepgram final 总有文本
             return events
@@ -94,48 +94,54 @@ class SegmentSupervisor:
         self.end_time = end
 
         # 2. 发出 Updated 事件（通知前端当前 Segment 内容变化）
-        events.append(SegmentEvent(
-            type='updated',
-            segment_id=self._current_segment_id,
-            data={
-                'text': self.buffer,
-                'start': self.start_time,
-                'end': self.end_time,
-                'is_final': False  # 尚未 Close
-            }
-        ))
+        events.append(
+            SegmentEvent(
+                type="updated",
+                segment_id=self._current_segment_id,
+                data={
+                    "text": self.buffer,
+                    "start": self.start_time,
+                    "end": self.end_time,
+                    "is_final": False,  # 尚未 Close
+                },
+            )
+        )
 
         # 3. 检查是否需要切分
         start_new, closed_segment_data = self._check_split_criteria()
-        
+
         if start_new and closed_segment_data:
             # 发出 Closed 事件
-            events.append(SegmentEvent(
-                type='closed',
-                segment_id=closed_segment_data['segment_id'],
-                data=closed_segment_data
-            ))
-            
+            events.append(
+                SegmentEvent(
+                    type="closed",
+                    segment_id=closed_segment_data["segment_id"],
+                    data=closed_segment_data,
+                )
+            )
+
             # 准备新 Segment
             self._reset_for_new_segment()
-            
+
             # 发出新 Segment 的 Created 事件
-            events.append(SegmentEvent(
-                type='created',
-                segment_id=self._current_segment_id,
-                data={'start': 0.0}  # 初始为空
-            ))
+            events.append(
+                SegmentEvent(
+                    type="created",
+                    segment_id=self._current_segment_id,
+                    data={"start": 0.0},  # 初始为空
+                )
+            )
 
         return events
 
-    def _check_split_criteria(self) -> tuple[bool, Optional[dict]]:
+    def _check_split_criteria(self) -> tuple[bool, dict | None]:
         """检查切分标准，返回 (是否切分, 切分的Segment数据)"""
         if not self.buffer.strip():
             return False, None
 
         word_count = self.word_count
         ends_with_punctuation = bool(self.SENTENCE_END_PATTERN.search(self.buffer))
-        
+
         should_split = False
 
         if word_count >= self.soft_threshold and ends_with_punctuation:
@@ -146,14 +152,14 @@ class SegmentSupervisor:
         if should_split:
             # 准备 Closed 数据
             closed_data = {
-                'segment_id': self._current_segment_id,
-                'text': self.buffer,
-                'start': self.start_time,
-                'end': self.end_time,
-                'word_count': word_count,
+                "segment_id": self._current_segment_id,
+                "text": self.buffer,
+                "start": self.start_time,
+                "end": self.end_time,
+                "word_count": word_count,
             }
             return True, closed_data
-            
+
         return False, None
 
     def _reset_for_new_segment(self):
@@ -164,21 +170,19 @@ class SegmentSupervisor:
         self._has_start_time = False
         self._current_segment_id = self._generate_segment_id()
 
-    def force_close(self) -> List[SegmentEvent]:
+    def force_close(self) -> list[SegmentEvent]:
         """强制关闭当前 Segment（如停止录音时）"""
         events = []
         if self.buffer.strip():
             closed_data = {
-                'segment_id': self._current_segment_id,
-                'text': self.buffer,
-                'start': self.start_time,
-                'end': self.end_time,
-                'word_count': self.word_count,
+                "segment_id": self._current_segment_id,
+                "text": self.buffer,
+                "start": self.start_time,
+                "end": self.end_time,
+                "word_count": self.word_count,
             }
-            events.append(SegmentEvent(
-                type='closed',
-                segment_id=self._current_segment_id,
-                data=closed_data
-            ))
+            events.append(
+                SegmentEvent(type="closed", segment_id=self._current_segment_id, data=closed_data)
+            )
             self._reset_for_new_segment()
         return events
