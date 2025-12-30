@@ -3,4 +3,4 @@ EchoText Backend Version
 版本号集中管理
 """
 
-__version__ = "1.1.3"
+__version__ = "1.1.4"
