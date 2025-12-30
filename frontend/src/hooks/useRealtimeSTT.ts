@@ -365,7 +365,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
                                 // Accumulate transcript
                                 setState(prev => {
                                     const index = prev.segments.findIndex(s => s.id === data.segment_id)
-                                    let newSegments = [...prev.segments]
+                                    const newSegments = [...prev.segments]
 
                                     if (index !== -1) {
                                         // Update existing
@@ -495,7 +495,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
                         if (data.segment_id) {
                             setState(prev => {
                                 const index = prev.segments.findIndex(s => s.id === data.segment_id)
-                                let newSegments = [...prev.segments]
+                                const newSegments = [...prev.segments]
                                 if (index !== -1) {
                                     // Update with final text/time
                                     newSegments[index] = {
@@ -712,7 +712,7 @@ export function useRealtimeSTT(options: UseRealtimeSTTOptions = {}): UseRealtime
         setState(prev => ({ ...prev, isRecording: false, connectionStatus: 'disconnected' }))
 
         // Finalize segments
-        let finalSegments = [...stateRef.current.segments]
+        const finalSegments = [...stateRef.current.segments]
 
         // Only do manual flush if NOT in backend splitting mode
         if (!isBackendSplittingRef.current && transcriptRef.current.trim()) {
