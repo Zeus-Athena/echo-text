@@ -188,14 +188,24 @@ async def websocket_transcribe_v2(websocket: WebSocket, token: str):
             segment_hard_threshold = int(own_config.segment_hard_threshold if own_config else 60)
 
             # 读取 RPM 配置（translation_mode 字段复用为 RPM 限制）
-            # 老数据（0, 6）或无效值自动修正为 100
-            raw_rpm = own_config.translation_mode if own_config else 100
-            if raw_rpm < 10:
-                rpm_limit = 100  # 兼容老数据
+            # 仅当值 <= 0 时视为无效/旧数据，重置为默认值 (60)
+            # 允许设置 1, 2 等低值用于测试
+            raw_rpm = own_config.translation_mode if own_config else 0
+            if raw_rpm <= 0:
+                rpm_limit = 60  # 默认值
             elif raw_rpm > 300:
                 rpm_limit = 300  # 限制最大值
             else:
                 rpm_limit = raw_rpm
+
+            # 读取 Burst 配置（令牌桶容量）
+            raw_burst = own_config.translation_burst if own_config else 10
+            if raw_burst < 1:
+                burst_limit = 1
+            elif raw_burst > 100:
+                burst_limit = 100
+            else:
+                burst_limit = raw_burst
 
             provider = user_config.stt_provider or "Groq"
             model = user_config.stt_model or "whisper-large-v3-turbo"
@@ -516,10 +526,11 @@ async def websocket_transcribe_v2(websocket: WebSocket, token: str):
                                     llm_service=llm_service,
                                     source_lang=session.source_lang,
                                     target_lang=session.target_lang,
-                                    rpm_limit=rpm_limit,  # 传入用户配置的 RPM
+                                    rpm_limit=rpm_limit,
+                                    capacity=burst_limit,  # 传入用户配置的桶容量
                                 )
                                 logger.info(
-                                    f"Using NEW flow (true streaming): model={model}, rpm={rpm_limit}"
+                                    f"Using NEW flow (true streaming): model={model}, rpm={rpm_limit}, burst={burst_limit}"
                                 )
                             else:
                                 use_new_translation_flow = False

@@ -208,6 +208,7 @@ async def get_user_config(
             translation_mode=config.translation_mode,
             segment_soft_threshold=config.segment_soft_threshold,
             segment_hard_threshold=config.segment_hard_threshold,
+            translation_burst=config.translation_burst,
         ),
         using_admin_key=using_admin_key,
     )
@@ -409,6 +410,8 @@ async def update_user_config(
             config.segment_soft_threshold = config_data.recording.segment_soft_threshold
         if config_data.recording.segment_hard_threshold is not None:
             config.segment_hard_threshold = config_data.recording.segment_hard_threshold
+        if config_data.recording.translation_burst is not None:
+            config.translation_burst = config_data.recording.translation_burst
 
     await db.commit()
     await db.refresh(config)

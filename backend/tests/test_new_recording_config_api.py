@@ -34,11 +34,13 @@ async def test_recording_config_schema_new_fields():
         "segment_soft_threshold": 60,
         "segment_hard_threshold": 120,
         "translation_mode": 1,
+        "translation_burst": 25,
     }
     config = RecordingConfig(**config_data)
     assert config.segment_soft_threshold == 60
     assert config.segment_hard_threshold == 120
     assert config.translation_mode == 1
+    assert config.translation_burst == 25
 
 
 @pytest.mark.asyncio
@@ -50,6 +52,7 @@ async def test_update_user_config_with_new_fields(mock_user, mock_db):
     mock_config.segment_soft_threshold = 50
     mock_config.segment_hard_threshold = 100
     mock_config.translation_mode = 0
+    mock_config.translation_burst = 10
 
     mock_res = MagicMock()
     mock_res.scalar_one_or_none.return_value = mock_config
@@ -57,7 +60,10 @@ async def test_update_user_config_with_new_fields(mock_user, mock_db):
 
     update_data = UserConfigUpdate(
         recording=RecordingConfig(
-            segment_soft_threshold=80, segment_hard_threshold=150, translation_mode=2
+            segment_soft_threshold=80,
+            segment_hard_threshold=150,
+            translation_mode=2,
+            translation_burst=50,
         )
     )
 
@@ -68,6 +74,7 @@ async def test_update_user_config_with_new_fields(mock_user, mock_db):
     assert mock_config.segment_soft_threshold == 80
     assert mock_config.segment_hard_threshold == 150
     assert mock_config.translation_mode == 2
+    assert mock_config.translation_burst == 50
 
 
 @pytest.mark.asyncio
@@ -112,6 +119,7 @@ async def test_get_user_config_returns_new_fields(mock_user, mock_db):
         "segment_soft_threshold": 77,
         "segment_hard_threshold": 88,
         "translation_mode": 3,
+        "translation_burst": 42,
     }
     mock_config = SimpleMock(**config_attrs)
 
@@ -131,3 +139,4 @@ async def test_get_user_config_returns_new_fields(mock_user, mock_db):
     assert response.recording.segment_soft_threshold == 77
     assert response.recording.segment_hard_threshold == 88
     assert response.recording.translation_mode == 3
+    assert response.recording.translation_burst == 42

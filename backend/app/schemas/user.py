@@ -152,6 +152,7 @@ class RecordingConfig(BaseModel):
     translation_mode: int = 0
     segment_soft_threshold: int = 50
     segment_hard_threshold: int = 100
+    translation_burst: int = 10
 
 
 class UserConfigResponse(BaseModel):
@@ -199,3 +200,4 @@ class ConfigTestResponse(BaseModel):
     message: str
     provider: str
     latency_ms: int | None = None
+    debug_info: dict | None = None  # Optional debug info for troubleshooting

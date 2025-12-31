@@ -55,6 +55,7 @@ async def test_ws_reconnect_start_logic():
         "translation_mode": 0,
         "segment_soft_threshold": 30,
         "segment_hard_threshold": 60,
+        "translation_burst": 10,
     }
     mock_config = SimpleMock(**config_attrs)
 

@@ -124,6 +124,9 @@ class UserConfig(Base):
     segment_soft_threshold: Mapped[int] = mapped_column(default=50)  # words per card (soft)
     segment_hard_threshold: Mapped[int] = mapped_column(default=100)  # words per card (hard limit)
 
+    # Translation Burst (Token Bucket Capacity)
+    translation_burst: Mapped[int] = mapped_column(default=10)
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )

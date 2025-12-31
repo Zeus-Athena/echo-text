@@ -31,6 +31,7 @@ export function RecordingSettings() {
     const [silencePreferSource, setSilencePreferSource] = useState<'current' | 'auto'>('current')
     const [thresholdSource, setThresholdSource] = useState<'default' | 'manual' | 'manual_detect' | 'auto'>('default')
     const [translationMode, setTranslationMode] = useState(100)  // RPM 限制，默认 100
+    const [translationBurst, setTranslationBurst] = useState(10)  // 令牌桶容量，默认 10
     const [softThreshold, setSoftThreshold] = useState(50)
     const [hardThreshold, setHardThreshold] = useState(100)
 
@@ -46,7 +47,10 @@ export function RecordingSettings() {
             setThresholdSource((config.recording.silence_threshold_source as any) ?? 'default')
             // RPM 配置：老数据 (0, 6) 自动修正为 100
             const rawRpm = config.recording.translation_mode ?? 100
-            setTranslationMode(rawRpm < 10 ? 100 : rawRpm)
+            setTranslationMode(rawRpm)
+            // Burst 配置：老数据无字段默认 10
+            const rawBurst = config.recording.translation_burst ?? 10
+            setTranslationBurst(rawBurst)
             setSoftThreshold(config.recording.segment_soft_threshold ?? 50)
             setHardThreshold(config.recording.segment_hard_threshold ?? 100)
         }
@@ -60,6 +64,7 @@ export function RecordingSettings() {
                 silence_prefer_source: data.silencePreferSource,
                 silence_threshold_source: data.thresholdSource,
                 translation_mode: data.translationMode,
+                translation_burst: data.translationBurst,
                 segment_soft_threshold: data.softThreshold,
                 segment_hard_threshold: data.hardThreshold
             }
@@ -80,6 +85,7 @@ export function RecordingSettings() {
             silencePreferSource,
             thresholdSource,
             translationMode,
+            translationBurst,
             softThreshold,
             hardThreshold
         })
@@ -171,23 +177,58 @@ export function RecordingSettings() {
                                 <div className="absolute left-0 right-0 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full" />
                                 <div
                                     className="absolute left-0 h-1.5 bg-brand-500 rounded-full"
-                                    style={{ width: `${(translationMode - 10) / (300 - 10) * 100}%` }}
+                                    style={{ width: `${(translationMode - 1) / (300 - 1) * 100}%` }}
                                 />
                                 <input
-                                    type="range" min="10" max="300" step="10"
+                                    type="range" min="1" max="300" step="1"
                                     value={translationMode}
                                     onChange={(e) => setTranslationMode(Number(e.target.value))}
                                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
                                 />
                                 <div
                                     className="absolute w-5 h-5 bg-white dark:bg-brand-50 rounded-full border-2 border-brand-500 shadow-sm pointer-events-none transition-transform z-10"
-                                    style={{ left: `calc(${(translationMode - 10) / (300 - 10) * 100}% - 10px)` }}
+                                    style={{ left: `calc(${(translationMode - 1) / (300 - 1) * 100}% - 10px)` }}
                                 />
                             </div>
                             <p className="text-xs text-gray-500">
                                 每分钟最大翻译请求次数。较高值响应更快，但可能触发 LLM API 限流。推荐：Groq 免费版设 60，付费 API 设 100-200
                             </p>
                         </div>
+
+                        {/* 桶容量 (Burst) 滑块 */}
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center">
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    桶容量 (Burst)
+                                </label>
+                                <div className="bg-brand-50 dark:bg-brand-900/10 px-3 py-1 rounded-full border border-brand-100 dark:border-brand-900/20">
+                                    <span className="font-mono text-brand-600 dark:text-brand-400 font-bold text-xs">
+                                        {translationBurst} 次
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="relative h-10 w-full flex items-center">
+                                <div className="absolute left-0 right-0 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full" />
+                                <div
+                                    className="absolute left-0 h-1.5 bg-brand-500 rounded-full"
+                                    style={{ width: `${(translationBurst - 1) / (100 - 1) * 100}%` }}
+                                />
+                                <input
+                                    type="range" min="1" max="100" step="1"
+                                    value={translationBurst}
+                                    onChange={(e) => setTranslationBurst(Number(e.target.value))}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                                />
+                                <div
+                                    className="absolute w-5 h-5 bg-white dark:bg-brand-50 rounded-full border-2 border-brand-500 shadow-sm pointer-events-none transition-transform z-10"
+                                    style={{ left: `calc(${(translationBurst - 1) / (100 - 1) * 100}% - 10px)` }}
+                                />
+                            </div>
+                            <p className="text-xs text-gray-500">
+                                允许短时间内超过 RPM 限制的最大请求数。应对对话密集场景，推荐 10-30
+                            </p>
+                        </div>
+
                         <div className="p-4 bg-brand-50 dark:bg-brand-900/10 rounded-xl border border-brand-100 dark:border-brand-900/20 flex items-start gap-3">
                             <Activity className="w-4 h-4 text-brand-500 mt-0.5" />
                             <p className="text-xs text-brand-700 dark:text-brand-300 leading-relaxed">

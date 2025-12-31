@@ -56,6 +56,7 @@ class TranslationHandler:
         target_lang: str = "zh",
         translation_timeout: float = 15.0,
         rpm_limit: int = DEFAULT_RPM_LIMIT,
+        capacity: int = DEFAULT_CAPACITY,
         # 保留 buffer_duration 参数以兼容现有调用
         buffer_duration: float = 0.0,
     ):
@@ -69,7 +70,8 @@ class TranslationHandler:
 
         # RPM 控制（令牌桶算法）
         self.rpm_limit = rpm_limit
-        self.capacity = self.DEFAULT_CAPACITY
+        # 边界校验: 1 <= capacity <= 100
+        self.capacity = max(1, min(100, capacity))
         # 计算回血速率 (tokens/sec)
         self.refill_rate = rpm_limit / 60.0
 

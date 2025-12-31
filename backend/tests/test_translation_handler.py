@@ -337,6 +337,65 @@ class TestTokenBucketRPMControl:
         # 由于桶满，应该无需等待（<1s）
         assert elapsed < 1.0
 
+    @pytest.mark.asyncio
+    async def test_custom_capacity_1(self, mock_llm_service):
+        """容量=1 时只允许 1 次突发"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler = TranslationHandler(
+            llm_service=mock_llm_service,
+            rpm_limit=60,
+            capacity=1,  # 只允许 1 次突发
+        )
+        assert handler.capacity == 1
+
+        # 第一次请求立即通过
+        import time
+        start = time.time()
+        await handler.handle_transcript("Text 0", is_final=True)
+        elapsed_first = time.time() - start
+        assert elapsed_first < 0.5  # 应该立即
+
+        # 耗尽令牌后，第二次需要等待
+        handler.tokens = 0.0
+        handler.last_update = time.monotonic()
+        start = time.time()
+        await handler.handle_transcript("Text 1", is_final=True)
+        elapsed_second = time.time() - start
+        assert elapsed_second >= 0.9  # 等待约 1 秒
+
+    @pytest.mark.asyncio
+    async def test_custom_capacity_30(self, mock_llm_service):
+        """容量=30 时允许 30 次突发"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler = TranslationHandler(
+            llm_service=mock_llm_service,
+            rpm_limit=60,
+            capacity=30,
+        )
+        assert handler.capacity == 30
+        assert handler.tokens == 30.0  # 初始桶满
+
+    @pytest.mark.asyncio
+    async def test_capacity_bounds(self, mock_llm_service):
+        """边界值校验：capacity < 1 或 > 100"""
+        from app.services.websocket.translation_handler import TranslationHandler
+
+        handler_low = TranslationHandler(
+            llm_service=mock_llm_service,
+            rpm_limit=60,
+            capacity=0,  # 无效值
+        )
+        assert handler_low.capacity == 1  # 应被修正为 1
+
+        handler_high = TranslationHandler(
+            llm_service=mock_llm_service,
+            rpm_limit=60,
+            capacity=999,  # 超过上限
+        )
+        assert handler_high.capacity == 100  # 应被修正为 100
+
 
 class TestSingleIDTranslation:
     """单 ID 翻译测试 - 验证错位问题已修复"""
