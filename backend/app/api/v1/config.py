@@ -110,8 +110,47 @@ async def test_llm_config(
     except HTTPException:
         raise
     except Exception as e:
+        from openai import APIError, AuthenticationError
+
         logger.error(f"LLM test failed: {e}")
-        raise HTTPException(status_code=400, detail=f"LLM test failed: {str(e)}")
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Build debug info with masked API key
+        masked_key = f"{api_key[:8]}...{api_key[-4:]}" if api_key and len(api_key) > 12 else "***"
+        debug_info = {
+            "request": {
+                "method": "POST",
+                "url": f"{request.base_url}/chat/completions",
+                "headers": {
+                    "Authorization": f"Bearer {masked_key}",
+                    "Content-Type": "application/json",
+                },
+                "body": {
+                    "model": request.model or "gpt-3.5-turbo",
+                    "messages": [{"role": "user", "content": "test"}],
+                    "max_tokens": 20,
+                },
+            },
+            "response": {
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            },
+            "latency_ms": latency_ms,
+        }
+
+        # Extract more details from OpenAI-specific errors
+        if isinstance(e, AuthenticationError):
+            debug_info["response"]["status"] = "401 Unauthorized"
+        elif isinstance(e, APIError):
+            debug_info["response"]["status"] = f"{e.status_code} {type(e).__name__}"
+
+        return ConfigTestResponse(
+            success=False,
+            message=f"LLM 测试失败: {str(e)}",
+            provider=request.provider,
+            latency_ms=latency_ms,
+            debug_info=debug_info,
+        )
 
 
 @router.post("/stt", response_model=ConfigTestResponse)

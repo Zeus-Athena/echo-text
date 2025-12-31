@@ -152,6 +152,11 @@ Translate the user input from {source_name} to {target_name}.
 6. Do NOT translate the content inside <context> tags.
 </rules>"""
 
+        # Log the LLM call
+        logger.info(
+            f"LLM request [translate] provider={self.provider} model={self.model} source={source_lang} target={target_lang} text={text[:50]!r}"
+        )
+
         try:
             # For Qwen3 models, add /no_think instruction to disable thinking chain
             actual_text = text
@@ -203,6 +208,11 @@ Translate the user input from {source_name} to {target_name}.
 4. If the text appears incomplete (ends mid-sentence), translate what is given literally.
 5. Do NOT add explanations. Only output the translated text.
 </rules>"""
+
+        # Log the LLM call
+        logger.info(
+            f"LLM request [translate_stream] provider={self.provider} model={self.model} source={source_lang} target={target_lang} text={text[:50]!r}"
+        )
 
         try:
             # For Qwen3 models, add /no_think instruction to disable thinking chain
@@ -331,6 +341,11 @@ JSON形式で出力してください：
                 # but typically we user message for that.
                 pass
 
+        # Log the LLM call
+        logger.info(
+            f"LLM request [generate_summary] provider={self.provider} model={self.model} len_transcript={len(transcript)}"
+        )
+
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
@@ -405,6 +420,11 @@ JSON形式で出力してください：
   "antonyms": ["英文反义词"]
 }}
 请确保 definitions 列表中的所有内容、词性和释义均使用中文。"""
+
+        # Log the LLM call
+        logger.info(
+            f"LLM request [lookup_word] provider={self.provider} model={self.model} word={word}"
+        )
 
         try:
             response = await self.client.chat.completions.create(

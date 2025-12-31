@@ -40,7 +40,9 @@ import type {
     PromptTemplate,
     PromptTemplateCreate,
     PromptTemplateUpdate,
+    ProvidersMetadataResponse,
 } from './types'
+
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || ''
 
@@ -262,7 +264,11 @@ export const configApi = {
         apiClient.get('/config/test/stt/models'),
     fetchSTTModels: (data: { provider: string; api_key: string; base_url: string }) =>
         apiClient.post('/config/test/stt/models/fetch', data),
+    // New: Get providers metadata (single source of truth)
+    getProviders: () =>
+        apiClient.get<ProvidersMetadataResponse>('/config/providers'),
 }
+
 
 export const shareApi = {
     create: (data: {

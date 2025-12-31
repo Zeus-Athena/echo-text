@@ -1,7 +1,8 @@
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { userApi, configApi } from '@/api/client'
+import { ProviderInfo } from '@/api/types'
 import { useToast } from '@/components/Toast'
 import { Save, Loader2, Eye, EyeOff, RefreshCw, Wallet, Settings2, MessageSquareCode, Zap, CheckCircle2, XCircle, X } from 'lucide-react'
 import AIPromptsSettings from './AIPromptsSettings'
@@ -261,10 +262,58 @@ export function APISettings() {
     const queryClient = useQueryClient()
     const toast = useToast()
 
+    // Fetch provider metadata from backend (single source of truth)
+    const { data: providersData } = useQuery({
+        queryKey: ['providers-metadata'],
+        queryFn: () => configApi.getProviders(),
+        select: (res) => res.data,
+        staleTime: 1000 * 60 * 30, // 30 minutes - rarely changes
+        refetchOnWindowFocus: false,
+    })
+
+    // Build dynamic provider lookup objects with fallback to hardcoded constants
+    const llmProvidersLookup = useMemo(() => {
+        const lookup: Record<string, { base_url: string; models: { id: string; name: string; pricing: string }[] }> = {}
+        const providers = providersData?.llm || []
+        if (providers.length > 0) {
+            providers.forEach((p: ProviderInfo) => {
+                // Normalize to match existing convention (e.g., 'siliconflow' -> 'SiliconFlow')
+                const normalizedId = p.id === 'siliconflow' ? 'SiliconFlow'
+                    : p.id === 'siliconflowglobal' ? 'SiliconFlowGlobal'
+                        : p.id === 'groq' ? 'GROQ'
+                            : p.id === 'fireworks' ? 'Fireworks'
+                                : p.id === 'custom' ? 'Custom'
+                                    : p.id
+                lookup[normalizedId] = { base_url: p.base_url, models: p.models }
+            })
+        }
+        // Fallback to hardcoded if API didn't return anything
+        return Object.keys(lookup).length > 0 ? lookup : LLM_PROVIDERS
+    }, [providersData])
+
+    const sttProvidersLookup = useMemo(() => {
+        const lookup: Record<string, { base_url: string; models: { id: string; name: string; pricing: string; accuracy?: string }[] }> = {}
+        const providers = providersData?.stt || []
+        if (providers.length > 0) {
+            providers.forEach((p: ProviderInfo) => {
+                const normalizedId = p.id === 'siliconflow' ? 'SiliconFlow'
+                    : p.id === 'groq' ? 'GROQ'
+                        : p.id === 'openai' ? 'OpenAI'
+                            : p.id === 'deepgram' ? 'Deepgram'
+                                : p.id === 'custom' ? 'Custom'
+                                    : p.id
+                lookup[normalizedId] = { base_url: p.base_url, models: p.models }
+            })
+        }
+        return Object.keys(lookup).length > 0 ? lookup : STT_PROVIDERS
+    }, [providersData])
+
+
     // Test Results State
     const [llmTestResult, setLlmTestResult] = useState<TestResult>({ status: null, message: '' })
     const [sttTestResult, setSttTestResult] = useState<TestResult>({ status: null, message: '' })
     const [ttsTestResult, setTtsTestResult] = useState<TestResult>({ status: null, message: '' })
+
 
     const { data: config, isLoading } = useQuery({
         queryKey: ['user-config'],
@@ -307,7 +356,7 @@ export function APISettings() {
     const handleLLMProviderChange = (provider: string) => {
         if (provider === llm.provider) return
 
-        const config = LLM_PROVIDERS[provider as keyof typeof LLM_PROVIDERS]
+        const config = llmProvidersLookup[provider as keyof typeof llmProvidersLookup]
         if (config) {
             const keyName = getKeyName(provider)
             const savedKey = llm.keys[keyName] || ''
@@ -319,7 +368,7 @@ export function APISettings() {
                 provider,
                 api_key: savedKey,
                 base_url: savedUrl || config.base_url,
-                model: config.models[0].id
+                model: config.models[0]?.id || ''
             })
         }
     }
@@ -328,7 +377,7 @@ export function APISettings() {
     const handleSTTProviderChange = (provider: string) => {
         if (provider === stt.provider) return
 
-        const config = STT_PROVIDERS[provider as keyof typeof STT_PROVIDERS]
+        const config = sttProvidersLookup[provider as keyof typeof sttProvidersLookup]
         if (config) {
             const keyName = getKeyName(provider)
             const savedKey = stt.keys[keyName] || ''
@@ -340,7 +389,7 @@ export function APISettings() {
                 provider,
                 api_key: savedKey,
                 base_url: savedUrl || config.base_url,
-                model: config.models[0].id
+                model: config.models[0]?.id || ''
             })
         }
     }
@@ -374,7 +423,7 @@ export function APISettings() {
     // Handle LLM URL Change - update both base_url and urls dict
     const handleLLMUrlChange = (val: string) => {
         const keyName = getKeyName(llm.provider)
-        const defaultUrl = LLM_PROVIDERS[llm.provider as keyof typeof LLM_PROVIDERS]?.base_url || ''
+        const defaultUrl = llmProvidersLookup[llm.provider as keyof typeof llmProvidersLookup]?.base_url || ''
         // If value matches default, store null (use default)
         const urlToStore = val === defaultUrl ? null : (val || null)
 
@@ -391,7 +440,7 @@ export function APISettings() {
     // Handle STT URL Change - update both base_url and urls dict
     const handleSTTUrlChange = (val: string) => {
         const keyName = getKeyName(stt.provider)
-        const defaultUrl = STT_PROVIDERS[stt.provider as keyof typeof STT_PROVIDERS]?.base_url || ''
+        const defaultUrl = sttProvidersLookup[stt.provider as keyof typeof sttProvidersLookup]?.base_url || ''
         const urlToStore = val === defaultUrl ? null : (val || null)
 
         setSTT({
@@ -405,7 +454,7 @@ export function APISettings() {
     }
 
     // Check if URL is using default value
-    const isDefaultUrl = (currentUrl: string, provider: string, providers: typeof LLM_PROVIDERS | typeof STT_PROVIDERS) => {
+    const isDefaultUrl = (currentUrl: string, provider: string, providers: typeof llmProvidersLookup | typeof sttProvidersLookup) => {
         const defaultUrl = providers[provider as keyof typeof providers]?.base_url || ''
         return currentUrl === defaultUrl
     }
@@ -508,38 +557,42 @@ export function APISettings() {
         if (config) {
             // LLM: Load urls from config, use saved URL for current provider if available
             const llmProvider = config.llm?.provider || 'GROQ'
-            const llmConfig = LLM_PROVIDERS[llmProvider as keyof typeof LLM_PROVIDERS]
+            const llmConfig = llmProvidersLookup[llmProvider as keyof typeof llmProvidersLookup]
             const llmUrls = config.llm?.urls || {}
             const savedLlmUrl = llmUrls[llmProvider.toLowerCase()]
 
             // Validate model belongs to current provider, otherwise use default
+            // For Custom provider, always use saved model (no predefined models to validate against)
             const savedLlmModel = config.llm?.model
-            const isLlmModelValid = llmConfig?.models.some(m => m.id === savedLlmModel)
+            const isCustomLlm = llmProvider.toLowerCase() === 'custom'
+            const isLlmModelValid = isCustomLlm || llmConfig?.models.some(m => m.id === savedLlmModel)
 
             setLLM({
                 provider: llmProvider,
                 api_key: config.llm?.api_key || '',
                 base_url: savedLlmUrl || llmConfig?.base_url || 'https://api.groq.com/openai/v1',
-                model: isLlmModelValid ? savedLlmModel! : (llmConfig?.models[0]?.id || 'llama-3.3-70b-versatile'),
+                model: isLlmModelValid ? (savedLlmModel || '') : (llmConfig?.models[0]?.id || 'llama-3.3-70b-versatile'),
                 keys: config.llm?.keys || {},
                 urls: llmUrls
             })
 
             // STT: Load urls from config, use saved URL for current provider if available
             const sttProvider = config.stt?.provider || 'GROQ'
-            const sttConfig = STT_PROVIDERS[sttProvider as keyof typeof STT_PROVIDERS]
+            const sttConfig = sttProvidersLookup[sttProvider as keyof typeof sttProvidersLookup]
             const sttUrls = config.stt?.urls || {}
             const savedSttUrl = sttUrls[sttProvider.toLowerCase()]
 
             // Validate model belongs to current provider, otherwise use default
+            // For Custom provider, always use saved model (no predefined models to validate against)
             const savedSttModel = config.stt?.model
-            const isSttModelValid = sttConfig?.models.some(m => m.id === savedSttModel)
+            const isCustomStt = sttProvider.toLowerCase() === 'custom'
+            const isSttModelValid = isCustomStt || sttConfig?.models.some(m => m.id === savedSttModel)
 
             setSTT({
                 provider: sttProvider,
                 api_key: config.stt?.api_key || '',
                 base_url: savedSttUrl || sttConfig?.base_url || 'https://api.groq.com/openai/v1',
-                model: isSttModelValid ? savedSttModel! : (sttConfig?.models[0]?.id || 'whisper-large-v3-turbo'),
+                model: isSttModelValid ? (savedSttModel || '') : (sttConfig?.models[0]?.id || 'whisper-large-v3-turbo'),
                 keys: config.stt?.keys || {},
                 urls: sttUrls
             })
@@ -561,8 +614,8 @@ export function APISettings() {
         return <div className="card p-12 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto" /></div>
     }
 
-    const currentLLMProvider = LLM_PROVIDERS[llm.provider as keyof typeof LLM_PROVIDERS]
-    const currentSTTProvider = STT_PROVIDERS[stt.provider as keyof typeof STT_PROVIDERS]
+    const currentLLMProvider = llmProvidersLookup[llm.provider as keyof typeof llmProvidersLookup]
+    const currentSTTProvider = sttProvidersLookup[stt.provider as keyof typeof sttProvidersLookup]
 
     return (
         <div className="space-y-6">
@@ -610,8 +663,10 @@ export function APISettings() {
                                     <option value="SiliconFlowGlobal">SiliconFlow Global (国际站)</option>
                                     <option value="GROQ">GROQ (免费)</option>
                                     <option value="Fireworks">Fireworks.ai</option>
+                                    <option value="Custom">自定义 (OpenAI Compatible)</option>
                                 </select>
                             </div>
+
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">API Key</label>
                                 <div className="relative">
@@ -638,25 +693,36 @@ export function APISettings() {
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Base URL</label>
                                 <BaseUrlInput
                                     value={llm.base_url}
-                                    defaultValue={LLM_PROVIDERS[llm.provider as keyof typeof LLM_PROVIDERS]?.base_url || ''}
+                                    defaultValue={llmProvidersLookup[llm.provider as keyof typeof llmProvidersLookup]?.base_url || ''}
                                     onChange={handleLLMUrlChange}
                                     className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
                                 />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Model</label>
-                                <select
-                                    value={llm.model}
-                                    onChange={(e) => setLLM({ ...llm, model: e.target.value })}
-                                    className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
-                                >
-                                    {currentLLMProvider?.models.map((m) => (
-                                        <option key={m.id} value={m.id}>
-                                            {m.name} - {m.pricing}
-                                        </option>
-                                    ))}
-                                </select>
+                                {llm.provider === 'Custom' ? (
+                                    <input
+                                        type="text"
+                                        value={llm.model}
+                                        onChange={(e) => setLLM({ ...llm, model: e.target.value })}
+                                        placeholder="输入模型 ID，如 gpt-3.5-turbo"
+                                        className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
+                                    />
+                                ) : (
+                                    <select
+                                        value={llm.model}
+                                        onChange={(e) => setLLM({ ...llm, model: e.target.value })}
+                                        className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
+                                    >
+                                        {currentLLMProvider?.models.map((m) => (
+                                            <option key={m.id} value={m.id}>
+                                                {m.name} - {m.pricing}
+                                            </option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
+
 
                             {/* Balance Card */}
                             <BalanceCard serviceType="llm" provider={llm.provider} />
@@ -711,8 +777,10 @@ export function APISettings() {
                                     <option value="GROQ">GROQ (免费)</option>
                                     <option value="OpenAI">OpenAI (付费)</option>
                                     <option value="Deepgram">Deepgram (付费)</option>
+                                    <option value="Custom">自定义 (OpenAI Compatible)</option>
                                 </select>
                             </div>
+
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">API Key</label>
                                 <div className="relative">
@@ -739,30 +807,43 @@ export function APISettings() {
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Base URL</label>
                                 <BaseUrlInput
                                     value={stt.base_url}
-                                    defaultValue={STT_PROVIDERS[stt.provider as keyof typeof STT_PROVIDERS]?.base_url || ''}
+                                    defaultValue={sttProvidersLookup[stt.provider as keyof typeof sttProvidersLookup]?.base_url || ''}
                                     onChange={handleSTTUrlChange}
                                     className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
                                 />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Model</label>
-                                <select
-                                    value={stt.model}
-                                    onChange={(e) => setSTT({ ...stt, model: e.target.value })}
-                                    className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
-                                >
-                                    {currentSTTProvider?.models.map((m) => (
-                                        <option key={m.id} value={m.id}>
-                                            {m.name} - {m.accuracy} - {m.pricing}
-                                        </option>
-                                    ))}
-                                </select>
-                                {stt.provider === 'GROQ' && (
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        💡 推荐使用 whisper-large-v3-turbo，免费且准确率极高
-                                    </p>
+                                {stt.provider === 'Custom' ? (
+                                    <input
+                                        type="text"
+                                        value={stt.model}
+                                        onChange={(e) => setSTT({ ...stt, model: e.target.value })}
+                                        placeholder="输入模型 ID，如 whisper-1"
+                                        className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
+                                    />
+                                ) : (
+                                    <>
+                                        <select
+                                            value={stt.model}
+                                            onChange={(e) => setSTT({ ...stt, model: e.target.value })}
+                                            className="input border-brand-200 dark:border-brand-800 focus:border-brand-500 focus:ring-brand-500"
+                                        >
+                                            {currentSTTProvider?.models.map((m) => (
+                                                <option key={m.id} value={m.id}>
+                                                    {m.name} - {m.accuracy} - {m.pricing}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {stt.provider === 'GROQ' && (
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                💡 推荐使用 whisper-large-v3-turbo，免费且准确率极高
+                                            </p>
+                                        )}
+                                    </>
                                 )}
                             </div>
+
 
                             {/* Balance Card */}
                             <BalanceCard serviceType="stt" provider={stt.provider} />

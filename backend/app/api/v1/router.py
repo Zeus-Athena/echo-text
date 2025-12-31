@@ -10,6 +10,7 @@ from app.api.v1.config import router as config_router
 from app.api.v1.diarization import router as diarization_router
 from app.api.v1.export import router as export_router
 from app.api.v1.prompts import router as prompts_router
+from app.api.v1.providers import router as providers_router
 from app.api.v1.recordings import router as recordings_router
 from app.api.v1.search import router as search_router
 from app.api.v1.share import router as share_router
@@ -31,3 +32,4 @@ api_router.include_router(export_router)
 api_router.include_router(share_router)
 api_router.include_router(diarization_router)
 api_router.include_router(prompts_router, prefix="/prompts", tags=["prompts"])
+api_router.include_router(providers_router)

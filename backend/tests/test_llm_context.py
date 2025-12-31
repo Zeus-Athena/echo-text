@@ -15,6 +15,7 @@ async def test_translate_with_context():
 
     # Create mock service
     service = LLMService.__new__(LLMService)
+    service.provider = "test"
     service.api_key = "test-key"
     service.base_url = "https://test.api"
     service.model = "test-model"
@@ -50,10 +51,12 @@ async def test_translate_without_context():
     from app.services.llm_service import LLMService
 
     service = LLMService.__new__(LLMService)
+    service.provider = "test"
     service.api_key = "test-key"
     service.base_url = "https://test.api"
     service.model = "test-model"
     service.client = AsyncMock()
+
 
     mock_response = MagicMock()
     mock_choice = MagicMock()
@@ -83,10 +86,12 @@ async def test_translate_prompt_contains_rules():
     from app.services.llm_service import LLMService
 
     service = LLMService.__new__(LLMService)
+    service.provider = "test"
     service.api_key = "test-key"
     service.base_url = "https://test.api"
     service.model = "test-model"
     service.client = AsyncMock()
+
 
     mock_response = MagicMock()
     mock_choice = MagicMock()

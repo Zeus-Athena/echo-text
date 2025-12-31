@@ -112,6 +112,7 @@ export interface RecordingConfig {
     translation_mode?: number  // RPM 限制 (10-300)，真流式时有效
     segment_soft_threshold?: number
     segment_hard_threshold?: number
+    translation_burst?: number  // 令牌桶容量 (1-100)
 }
 
 export interface UserConfigResponse {
@@ -376,6 +377,43 @@ export interface ConfigTestResponse {
     message: string
     provider: string
     latency_ms?: number
+    debug_info?: {
+        request?: {
+            method: string
+            url: string
+            headers: Record<string, string>
+            body: unknown
+        }
+        response?: {
+            status?: string
+            error_type?: string
+            error_message?: string
+        }
+        latency_ms?: number
+    }
+}
+
+// ========== Provider Metadata Types (Backend-driven) ==========
+
+export interface ModelInfo {
+    id: string
+    name: string
+    pricing: string
+    accuracy?: string  // STT 专用
+    recommended?: boolean
+}
+
+export interface ProviderInfo {
+    id: string
+    name: string
+    base_url: string
+    models: ModelInfo[]
+    help_text?: string
+}
+
+export interface ProvidersMetadataResponse {
+    llm: ProviderInfo[]
+    stt: ProviderInfo[]
 }
 
 // ========== Share Types ==========
