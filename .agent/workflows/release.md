@@ -25,6 +25,25 @@ description: 标准发布流程 (Develop改版本 -> 合并Main -> 打标签 -> 
     git commit -m "chore: bump version to vTARGET_VERSION"
     ```
 
+## 1.5 配置文件检查 (Configuration Verification)
+确保生产环境所需的配置文件完整且正确：
+
+- [ ] **检查后端配置**:
+    - `backend/.env.example` 中所有必需字段都有对应的生产值
+    - 确认 `backend/app/core/config.py` 中无硬编码的开发环境值
+- [ ] **检查前端配置**:
+    - `frontend/.env.example` 中 API 地址等配置正确
+- [ ] **检查 Docker 配置**:
+    - `docker-compose.yml` 或 `docker-compose.prod.yml` 环境变量完整
+    - 镜像版本号是否需要更新
+- [ ] **检查数据库迁移**:
+    ```bash
+    cd backend
+    alembic history --verbose | head -20
+    alembic heads
+    ```
+    确认是否有未应用的迁移或分叉的 migration heads
+
 ## 2. 代码验证 (Verification)
 - [ ] **Backend 测试**:
     ```bash
