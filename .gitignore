@@ -55,3 +55,6 @@ data/
 # Temporary/Debug files
 backend_logs.txt
 test_groq_rate_limit.py
+
+# Agent configuration
+.agent/

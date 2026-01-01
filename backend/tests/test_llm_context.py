@@ -57,7 +57,6 @@ async def test_translate_without_context():
     service.model = "test-model"
     service.client = AsyncMock()
 
-
     mock_response = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message.content = "你好世界"
@@ -91,7 +90,6 @@ async def test_translate_prompt_contains_rules():
     service.base_url = "https://test.api"
     service.model = "test-model"
     service.client = AsyncMock()
-
 
     mock_response = MagicMock()
     mock_choice = MagicMock()

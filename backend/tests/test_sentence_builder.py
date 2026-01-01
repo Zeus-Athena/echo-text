@@ -158,15 +158,15 @@ class TestSentenceBuilder:
     def test_buffer_flushed_on_segment_switch(self, builder):
         """新版本：segment 切换时 flush buffer（硬阈值场景）"""
         builder.add_final("This is an incomplete", "seg-1")
-        
+
         # reset_for_new_segment 现在会 flush 而不是保留
         flushed = builder.reset_for_new_segment("seg-2")
-        
+
         # flush 返回之前的内容
         assert len(flushed) == 1
         assert flushed[0].text == "This is an incomplete"
         assert flushed[0].segment_id == "seg-1"  # 归属旧 segment
-        
+
         # 新 segment 从空开始
         assert builder.buffer == ""
         result = builder.add_final("sentence here.", "seg-2")

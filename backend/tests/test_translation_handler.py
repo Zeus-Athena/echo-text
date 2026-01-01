@@ -158,18 +158,17 @@ class TestTranslationHandler:
         assert mock_llm_service.translate.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_throttle_mode_respects_rate_limit(
-        self, handler_throttle_mode, mock_llm_service
-    ):
+    async def test_throttle_mode_respects_rate_limit(self, handler_throttle_mode, mock_llm_service):
         """节流模式：遵守令牌桶限速 (首次请求消耗令牌后需等待)"""
         # 令牌桶初始满：10 个令牌，RPM=20 -> refill_rate = 0.333/s
         # 快速连续调用会消耗令牌，之后需等待
-        
+
         # 耗尽所有令牌
         handler_throttle_mode.tokens = 0.0
-        handler_throttle_mode.last_update = __import__('time').monotonic()
+        handler_throttle_mode.last_update = __import__("time").monotonic()
 
         import time
+
         start_time = time.time()
 
         # 此时令牌为 0，需要等待
@@ -199,7 +198,6 @@ class TestTranslationHandler:
         self, handler_throttle_mode, mock_llm_service
     ):
         """节流模式：更新最后更新时间 (令牌桶)"""
-        import time
         old_update = handler_throttle_mode.last_update
 
         await handler_throttle_mode.handle_transcript("Hello", is_final=True)
@@ -326,14 +324,15 @@ class TestTokenBucketRPMControl:
             rpm_limit=60,  # 1 token/s
         )
         # 初始桶满 (10 tokens)
-        
+
         import time
+
         start = time.time()
         # 快速连续 5 次请求
         for i in range(5):
             await handler.handle_transcript(f"Text {i}", is_final=True)
         elapsed = time.time() - start
-        
+
         # 由于桶满，应该无需等待（<1s）
         assert elapsed < 1.0
 
@@ -351,6 +350,7 @@ class TestTokenBucketRPMControl:
 
         # 第一次请求立即通过
         import time
+
         start = time.time()
         await handler.handle_transcript("Text 0", is_final=True)
         elapsed_first = time.time() - start
@@ -601,11 +601,12 @@ class TestTranslateSentenceAPI:
         handler.rpm_limit = 60
         handler.refill_rate = 1.0
         handler.tokens = 0.0  # 耗尽
-        handler.last_update = __import__('time').monotonic()
+        handler.last_update = __import__("time").monotonic()
 
         sentence1 = SentenceToTranslate(text="First.", segment_id="seg-1", sentence_index=0)
 
         import time
+
         start_time = time.time()
         await handler.translate_sentence(sentence1)
         elapsed = time.time() - start_time
